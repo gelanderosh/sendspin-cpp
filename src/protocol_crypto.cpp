@@ -14,6 +14,12 @@
 
 #include "protocol_crypto.h"
 
+#ifdef ESP_PLATFORM
+#include <esp_random.h>
+#else
+#include <openssl/rand.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -29,6 +35,18 @@
 #endif
 
 namespace sendspin {
+
+bool ProtocolCrypto::random_bytes(uint8_t* output, size_t output_size) {
+    if (output_size > 0 && output == nullptr) {
+        return false;
+    }
+#ifdef ESP_PLATFORM
+    esp_fill_random(output, output_size);
+    return true;
+#else
+    return output_size == 0 || RAND_bytes(output, static_cast<int>(output_size)) == 1;
+#endif
+}
 
 namespace {
 

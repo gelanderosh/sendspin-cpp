@@ -76,6 +76,8 @@ public:
     /// @return SsErr::OK if sent successfully, error code otherwise.
     SsErr send_text_message(const std::string& message, SendCompleteCallback on_complete,
                             bool allow_before_hello) override;
+    SsErr send_binary_message(const uint8_t* payload, size_t payload_size,
+                              SendCompleteCallback on_complete) override;
 
     /// @brief Sends a client/time message, capturing the timestamp synchronously before send
     /// @return true if the message was sent successfully, false otherwise.

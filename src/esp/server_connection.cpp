@@ -45,6 +45,7 @@ struct AsyncRespArg {
     /// When true the frame may be sent before client/hello (the hello itself and goodbye); when
     /// false the worker drops it unless the hello has already been sent on this connection.
     bool allow_before_hello{false};
+    bool binary{false};
     SendCompleteCallback on_complete;
 };
 
@@ -165,6 +166,44 @@ SsErr SendspinServerConnection::send_text_message(const std::string& message,
         if (resp_arg->has_callback) {
             resp_arg->on_complete(false);
         }
+        resp_arg->~AsyncRespArg();
+        platform_free(resp_arg);
+        return SsErr::FAIL;
+    }
+    return SsErr::OK;
+}
+
+SsErr SendspinServerConnection::send_binary_message(const uint8_t* payload, size_t payload_size,
+                                                    SendCompleteCallback on_complete) {
+    if (!this->is_connected() || (payload_size > 0 && payload == nullptr)) {
+        if (on_complete) {
+            on_complete(false);
+        }
+        return SsErr::INVALID_STATE;
+    }
+    auto* resp_arg = static_cast<AsyncRespArg*>(platform_malloc(sizeof(AsyncRespArg)));
+    if (resp_arg == nullptr) {
+        return SsErr::NO_MEM;
+    }
+    new (resp_arg) AsyncRespArg();
+    resp_arg->conn = std::static_pointer_cast<SendspinServerConnection>(this->shared_from_this());
+    resp_arg->payload = static_cast<uint8_t*>(platform_malloc(payload_size));
+    if (resp_arg->payload == nullptr && payload_size > 0) {
+        resp_arg->~AsyncRespArg();
+        platform_free(resp_arg);
+        return SsErr::NO_MEM;
+    }
+    resp_arg->len = payload_size;
+    resp_arg->binary = true;
+    if (on_complete) {
+        resp_arg->has_callback = true;
+        resp_arg->on_complete = std::move(on_complete);
+    }
+    if (payload_size > 0) {
+        std::memcpy(resp_arg->payload, payload, payload_size);
+    }
+    if (httpd_queue_work(this->server_, async_send_text, resp_arg) != ESP_OK) {
+        platform_free(resp_arg->payload);
         resp_arg->~AsyncRespArg();
         platform_free(resp_arg);
         return SsErr::FAIL;
@@ -315,7 +354,7 @@ void SendspinServerConnection::async_send_text(void* arg) {
 
     ws_pkt.payload = resp_arg->payload;
     ws_pkt.len = resp_arg->len;
-    ws_pkt.type = HTTPD_WS_TYPE_TEXT;
+    ws_pkt.type = resp_arg->binary ? HTTPD_WS_TYPE_BINARY : HTTPD_WS_TYPE_TEXT;
 
     // Resolve the originating connection. weak_ptr.lock() yields the exact conn that queued this
     // work (or null if it has been destroyed), so a recycled sockfd can never redirect the frame

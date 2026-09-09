@@ -41,6 +41,16 @@ TEST(ProtocolCryptoTest, Sha256RejectsNullArguments) {
     EXPECT_FALSE(ProtocolCrypto::sha256(digest.data(), digest.size(), nullptr));
 }
 
+TEST(ProtocolCryptoTest, ProducesSecureRandomBytes) {
+    std::array<uint8_t, 32> first{};
+    std::array<uint8_t, 32> second{};
+    EXPECT_TRUE(ProtocolCrypto::random_bytes(first.data(), first.size()));
+    EXPECT_TRUE(ProtocolCrypto::random_bytes(second.data(), second.size()));
+    EXPECT_NE(first, second);
+    EXPECT_FALSE(ProtocolCrypto::random_bytes(nullptr, 1));
+    EXPECT_TRUE(ProtocolCrypto::random_bytes(nullptr, 0));
+}
+
 TEST(ProtocolCryptoTest, HkdfSha256MatchesRfc5869CaseOne) {
     constexpr std::array<uint8_t, 22> input_key_material{
         0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B, 0x0B,

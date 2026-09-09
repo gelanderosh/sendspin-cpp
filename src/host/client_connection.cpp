@@ -120,6 +120,22 @@ SsErr SendspinClientConnection::send_text_message(const std::string& message,
     return SsErr::OK;
 }
 
+SsErr SendspinClientConnection::send_binary_message(const uint8_t* payload, size_t payload_size,
+                                                    SendCompleteCallback cb) {
+    if (!this->is_connected() || (payload_size > 0 && payload == nullptr)) {
+        if (cb) {
+            cb(false);
+        }
+        return SsErr::INVALID_STATE;
+    }
+    const auto info = this->ws_->send(std::string(reinterpret_cast<const char*>(payload), payload_size),
+                                      true);
+    if (cb) {
+        cb(info.success);
+    }
+    return info.success ? SsErr::OK : SsErr::FAIL;
+}
+
 bool SendspinClientConnection::send_time_message() {
     if (!this->is_connected()) {
         return false;

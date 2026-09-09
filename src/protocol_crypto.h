@@ -35,6 +35,9 @@ public:
     using ChaCha20Poly1305Nonce = std::array<uint8_t, CHACHA20_POLY1305_NONCE_SIZE>;
     using ChaCha20Poly1305Tag = std::array<uint8_t, CHACHA20_POLY1305_TAG_SIZE>;
 
+    /// @brief Fills output with cryptographically secure random bytes.
+    static bool random_bytes(uint8_t* output, size_t output_size);
+
     /// @brief Calculates the SHA-256 digest of the supplied bytes.
     static bool sha256(const uint8_t* input, size_t input_size, Sha256Digest* digest);
 

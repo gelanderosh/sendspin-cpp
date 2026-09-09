@@ -613,9 +613,11 @@ struct ServerColorStateDelta {
 
 /// @brief Outgoing client/hello handshake message sent at connection startup
 struct ClientHelloMessage {
+    /// @deprecated Protocol-v1 identifies the client in client/init, not client/hello.
     std::string client_id{};
     std::string name{};
     std::optional<DeviceInfoObject> device_info{};
+    /// @deprecated Protocol-v1 version negotiation occurs in client/init.
     uint8_t version{};
     std::vector<SendspinRole> supported_roles{};
     std::optional<PlayerSupportObject> player_v1_support{};
@@ -625,7 +627,7 @@ struct ClientHelloMessage {
 
 /// @brief Outgoing client/state message reporting client playback state to the server
 struct ClientStateMessage {
-    SendspinClientState state{};
+    bool available{};
     std::optional<ClientPlayerStateObject> player{};
 };
 

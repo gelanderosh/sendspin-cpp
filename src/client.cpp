@@ -608,22 +608,12 @@ std::string SendspinClient::build_hello_message() {
     const std::optional<std::string> interface_mac =
         this->config_.mac_address ? this->config_.mac_address : platform_get_interface_mac();
 
-    // Some integrations use the network MAC as the Sendspin client_id. If they leave it empty,
-    // default to the same active-interface MAC advertised in device_info instead of forcing them
-    // to duplicate platform-specific MAC detection.
-    msg.client_id = this->config_.client_id;
-    if (msg.client_id.empty() && interface_mac.has_value()) {
-        msg.client_id = interface_mac.value();
-    }
-
     DeviceInfoObject device_info{};
     device_info.product_name = this->config_.product_name;
     device_info.manufacturer = this->config_.manufacturer;
     device_info.software_version = this->config_.software_version;
     device_info.mac_address = interface_mac;
     msg.device_info = device_info;
-
-    msg.version = 1;
 
     // Let each role add its fields to the hello message
 #ifdef SENDSPIN_ENABLE_PLAYER
@@ -963,7 +953,7 @@ void SendspinClient::publish_client_state(SendspinConnection* conn) {
     }
 
     ClientStateMessage state_msg;
-    state_msg.state = this->state_;
+    state_msg.available = this->state_ == SendspinClientState::SYNCHRONIZED;
 
 #ifdef SENDSPIN_ENABLE_PLAYER
     if (this->player_) {

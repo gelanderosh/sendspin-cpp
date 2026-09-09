@@ -152,6 +152,10 @@ public:
     virtual SsErr send_text_message(const std::string& message, SendCompleteCallback cb,
                                     bool allow_before_hello = false) = 0;
 
+    /// @brief Sends a raw WebSocket binary frame. Protocol-v1 uses this for Noise ciphertexts.
+    virtual SsErr send_binary_message(const uint8_t* payload, size_t payload_size,
+                                      SendCompleteCallback cb) = 0;
+
     /// @brief Sends a client/time synchronization message
     ///
     /// The transport implementation captures `client_transmitted` as close to the actual wire

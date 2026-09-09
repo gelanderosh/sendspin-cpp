@@ -816,7 +816,6 @@ std::string format_client_hello_message(const ClientHelloMessage* msg) {
     JsonObject root = doc.to<JsonObject>();
 
     root["type"] = "client/hello";
-    root["payload"]["client_id"] = msg->client_id;
     root["payload"]["name"] = msg->name;
     if (msg->device_info.has_value()) {
         const auto& info = msg->device_info.value();
@@ -833,7 +832,6 @@ std::string format_client_hello_message(const ClientHelloMessage* msg) {
             root["payload"]["device_info"]["mac_address"] = info.mac_address.value();
         }
     }
-    root["payload"]["version"] = msg->version;
     JsonArray supported_roles_list = root["payload"]["supported_roles"].to<JsonArray>();
     for (const auto& role : msg->supported_roles) {
         supported_roles_list.add(to_cstr(role));
@@ -893,7 +891,7 @@ std::string format_client_state_message(const ClientStateMessage* msg) {
     JsonObject root = doc.to<JsonObject>();
 
     root["type"] = "client/state";
-    root["payload"]["state"] = to_cstr(msg->state);
+    root["payload"]["available"] = msg->available;
 
     if (msg->player.has_value()) {
         const ClientPlayerStateObject& player_state = msg->player.value();
