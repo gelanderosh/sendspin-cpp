@@ -140,6 +140,8 @@ bool chacha20_poly1305_encrypt_openssl(const ProtocolCrypto::ChaCha20Poly1305Key
     }
     EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
     int output_size = 0;
+    uint8_t empty_output{};
+    uint8_t* final_output = plaintext_size == 0 ? &empty_output : ciphertext + plaintext_size;
     const bool success = context != nullptr &&
                          EVP_EncryptInit_ex(context, EVP_chacha20_poly1305(), nullptr, nullptr, nullptr) == 1 &&
                          EVP_EncryptInit_ex(context, nullptr, nullptr, key.data(), nonce.data()) == 1 &&
@@ -147,7 +149,7 @@ bool chacha20_poly1305_encrypt_openssl(const ProtocolCrypto::ChaCha20Poly1305Key
                                                               static_cast<int>(aad_size)) == 1) &&
                          (plaintext_size == 0 || EVP_EncryptUpdate(context, ciphertext, &output_size, plaintext,
                                                                     static_cast<int>(plaintext_size)) == 1) &&
-                         EVP_EncryptFinal_ex(context, ciphertext + output_size, &output_size) == 1 &&
+                         EVP_EncryptFinal_ex(context, final_output, &output_size) == 1 &&
                          EVP_CIPHER_CTX_ctrl(context, EVP_CTRL_AEAD_GET_TAG, tag->size(), tag->data()) == 1;
     EVP_CIPHER_CTX_free(context);
     return success;
@@ -165,6 +167,8 @@ bool chacha20_poly1305_decrypt_openssl(const ProtocolCrypto::ChaCha20Poly1305Key
     }
     EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
     int output_size = 0;
+    uint8_t empty_output{};
+    uint8_t* final_output = ciphertext_size == 0 ? &empty_output : plaintext + ciphertext_size;
     const bool success = context != nullptr &&
                          EVP_DecryptInit_ex(context, EVP_chacha20_poly1305(), nullptr, nullptr, nullptr) == 1 &&
                          EVP_DecryptInit_ex(context, nullptr, nullptr, key.data(), nonce.data()) == 1 &&
@@ -174,7 +178,7 @@ bool chacha20_poly1305_decrypt_openssl(const ProtocolCrypto::ChaCha20Poly1305Key
                                                                      static_cast<int>(ciphertext_size)) == 1) &&
                          EVP_CIPHER_CTX_ctrl(context, EVP_CTRL_AEAD_SET_TAG, tag.size(),
                                              const_cast<uint8_t*>(tag.data())) == 1 &&
-                         EVP_DecryptFinal_ex(context, plaintext + output_size, &output_size) == 1;
+                         EVP_DecryptFinal_ex(context, final_output, &output_size) == 1;
     EVP_CIPHER_CTX_free(context);
     return success;
 }

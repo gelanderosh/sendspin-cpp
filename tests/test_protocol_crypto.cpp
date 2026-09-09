@@ -163,6 +163,12 @@ TEST(ProtocolCryptoTest, ChaCha20Poly1305MatchesRfc8439AndRejectsTampering) {
                                                              ciphertext.data(), ciphertext.size(), tag,
                                                              decrypted.data()));
     EXPECT_EQ(decrypted, zero_plaintext);
+
+    ProtocolCrypto::ChaCha20Poly1305Tag empty_tag{};
+    ASSERT_TRUE(ProtocolCrypto::chacha20_poly1305_encrypt(key, nonce, nullptr, 0, nullptr, 0, nullptr,
+                                                            &empty_tag));
+    EXPECT_TRUE(ProtocolCrypto::chacha20_poly1305_decrypt(key, nonce, nullptr, 0, nullptr, 0, empty_tag,
+                                                            nullptr));
 }
 
 }  // namespace sendspin
