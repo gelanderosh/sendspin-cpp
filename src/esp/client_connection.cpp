@@ -189,6 +189,9 @@ bool SendspinClientConnection::send_time_message() {
         return false;
     }
     this->update_serialize_ema(esp_timer_get_time() - client_transmitted);
+    if (this->is_protocol_v1()) {
+        return this->send_protocol_json(std::string(buf, len)) == SsErr::OK;
+    }
 
     int sent = esp_websocket_client_send_text(this->client_, buf, len,
                                               pdMS_TO_TICKS(WEBSOCKET_SEND_TIMEOUT_MS));

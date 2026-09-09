@@ -290,6 +290,17 @@ bool SendspinServerConnection::send_time_message() {
         return false;
     }
 
+    if (this->is_protocol_v1()) {
+        char buffer[TIME_MESSAGE_BUF_SIZE];
+        const int64_t client_transmitted = esp_timer_get_time();
+        const size_t length = format_client_time_message(buffer, sizeof(buffer), client_transmitted);
+        if (length == 0) {
+            return false;
+        }
+        this->update_serialize_ema(esp_timer_get_time() - client_transmitted);
+        return this->send_protocol_json(std::string(buffer, length)) == SsErr::OK;
+    }
+
     // The worker resolves the originating connection via the weak_ptr below, so a recycled sockfd
     // cannot redirect the frame and a destroyed connection yields a clean no-op. The JSON is built
     // inside the worker so client_transmitted is captured as close to the wire send as possible.

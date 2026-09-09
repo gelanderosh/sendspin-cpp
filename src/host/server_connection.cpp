@@ -111,6 +111,9 @@ bool SendspinServerConnection::send_time_message() {
         return false;
     }
     this->update_serialize_ema(platform_time_us() - client_transmitted);
+    if (this->is_protocol_v1()) {
+        return this->send_protocol_json(std::string(buf, len)) == SsErr::OK;
+    }
     return this->ws_->send(std::string(buf, len)).success;
 }
 
