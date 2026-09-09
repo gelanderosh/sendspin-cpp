@@ -895,7 +895,7 @@ void SendspinClient::process_json_message(SendspinConnection* conn, const char* 
         case SendspinServerToClientMessageType::SERVER_ACTIVATE: {
             ServerActivateMessage activate_msg;
             if (conn != nullptr && process_server_activate_message(root, &activate_msg)) {
-                conn->apply_protocol_v1_activation(activate_msg.active_roles);
+                conn->apply_protocol_v1_activation(activate_msg.activities, activate_msg.active_roles);
             }
             break;
         }

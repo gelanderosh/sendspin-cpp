@@ -825,6 +825,27 @@ void ConnectionManager::drop_connection(SendspinConnection* conn,
 
 bool ConnectionManager::should_switch_to_new_server(SendspinConnection* current,
                                                     SendspinConnection* new_conn) const {
+    if (current->is_protocol_v1() && new_conn->is_protocol_v1()) {
+        const uint8_t current_priority = current->protocol_v1_activity_priority();
+        const uint8_t new_priority = new_conn->protocol_v1_activity_priority();
+
+        // An in-flight pairing attempt is retained against competing playback or pairing
+        // connections; management remains able to take control.
+        if (current_priority == 1 && new_priority <= 2) {
+            return false;
+        }
+
+        if (current_priority != 0 || new_priority != 0) {
+            return new_priority >= current_priority;
+        }
+
+        if (this->has_last_played_server_) {
+            return fnv1_hash(new_conn->get_server_id().c_str()) == this->last_played_server_hash_ &&
+                   fnv1_hash(current->get_server_id().c_str()) != this->last_played_server_hash_;
+        }
+        return false;
+    }
+
     auto new_reason = new_conn->get_connection_reason();
     auto current_reason = current->get_connection_reason();
 

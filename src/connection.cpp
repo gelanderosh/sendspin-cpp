@@ -62,14 +62,17 @@ bool SendspinConnection::begin_protocol_v1(const SendspinProtocolV1::Key& identi
     protocol_v1_activated_ = false;
     {
         std::lock_guard<std::mutex> lock(protocol_v1_activation_mutex_);
+        protocol_v1_activities_.clear();
         protocol_v1_active_roles_.clear();
     }
     return protocol_v1_session_->begin(identity_private_key, client_id, persistence, client_init);
 }
 
 void SendspinConnection::apply_protocol_v1_activation(
+    const std::vector<std::string>& activities,
     const std::optional<std::vector<std::string>>& active_roles) {
     std::lock_guard<std::mutex> lock(protocol_v1_activation_mutex_);
+    protocol_v1_activities_ = activities;
     if (active_roles.has_value()) {
         protocol_v1_active_roles_ = *active_roles;
     } else if (!protocol_v1_activated_.load(std::memory_order_acquire)) {
@@ -85,6 +88,25 @@ bool SendspinConnection::is_protocol_v1_role_active(std::string_view role) const
     std::lock_guard<std::mutex> lock(protocol_v1_activation_mutex_);
     return std::find(protocol_v1_active_roles_.begin(), protocol_v1_active_roles_.end(), role) !=
            protocol_v1_active_roles_.end();
+}
+
+bool SendspinConnection::has_protocol_v1_activity(std::string_view activity) const {
+    std::lock_guard<std::mutex> lock(protocol_v1_activation_mutex_);
+    return std::find(protocol_v1_activities_.begin(), protocol_v1_activities_.end(), activity) !=
+           protocol_v1_activities_.end();
+}
+
+uint8_t SendspinConnection::protocol_v1_activity_priority() const {
+    if (!is_protocol_v1()) {
+        return 0;
+    }
+    if (has_protocol_v1_activity("management")) {
+        return 3;
+    }
+    if (has_protocol_v1_activity("playback")) {
+        return 2;
+    }
+    return has_protocol_v1_activity("pairing") ? 1 : 0;
 }
 
 SsErr SendspinConnection::send_protocol_json(const std::string& message, SendCompleteCallback cb) {

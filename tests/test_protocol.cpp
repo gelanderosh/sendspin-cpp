@@ -445,16 +445,18 @@ TEST(Protocol, ServerActivatePersistsOmittedRolesAfterFirstActivation) {
     std::string client_init;
     ASSERT_TRUE(connection.begin_protocol_v1(identity, client_id, nullptr, &client_init));
 
-    connection.apply_protocol_v1_activation(std::vector<std::string>{"player@v1"});
+    connection.apply_protocol_v1_activation({"playback"}, std::vector<std::string>{"player@v1"});
     EXPECT_TRUE(connection.is_protocol_v1_role_active("player@v1"));
     EXPECT_FALSE(connection.is_protocol_v1_role_active("artwork@v1"));
+    EXPECT_EQ(connection.protocol_v1_activity_priority(), 2);
 
-    connection.apply_protocol_v1_activation(std::nullopt);
+    connection.apply_protocol_v1_activation({"management"}, std::nullopt);
     EXPECT_TRUE(connection.is_protocol_v1_role_active("player@v1"));
+    EXPECT_EQ(connection.protocol_v1_activity_priority(), 3);
 
     ActivationTestConnection initially_empty;
     ASSERT_TRUE(initially_empty.begin_protocol_v1(identity, client_id, nullptr, &client_init));
-    initially_empty.apply_protocol_v1_activation(std::nullopt);
+    initially_empty.apply_protocol_v1_activation({}, std::nullopt);
     EXPECT_FALSE(initially_empty.is_protocol_v1_role_active("player@v1"));
 }
 

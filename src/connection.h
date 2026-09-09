@@ -171,9 +171,14 @@ public:
 
     void set_protocol_v1_activated(bool activated) { protocol_v1_activated_ = activated; }
 
-    void apply_protocol_v1_activation(const std::optional<std::vector<std::string>>& active_roles);
+    void apply_protocol_v1_activation(const std::vector<std::string>& activities,
+                                      const std::optional<std::vector<std::string>>& active_roles);
 
     bool is_protocol_v1_role_active(std::string_view role) const;
+
+    bool has_protocol_v1_activity(std::string_view activity) const;
+
+    uint8_t protocol_v1_activity_priority() const;
 
     bool is_protocol_v1() const { return protocol_v1_session_ != nullptr; }
 
@@ -435,6 +440,7 @@ protected:
     std::unique_ptr<SendspinTimeFilter> time_filter_;
     std::unique_ptr<ProtocolV1ResponderSession> protocol_v1_session_;
     mutable std::mutex protocol_v1_activation_mutex_;
+    std::vector<std::string> protocol_v1_activities_;
     std::vector<std::string> protocol_v1_active_roles_;
 
     // 64-bit fields
