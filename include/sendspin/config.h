@@ -135,6 +135,12 @@ struct PlayerRoleConfig {
     int32_t fixed_delay_us{0};
     uint16_t initial_static_delay_ms{0};
 
+    /// @brief Startup lead requested from the server before the first audio timestamp.
+    uint16_t required_lead_time_ms{150};
+
+    /// @brief Minimum compressed-audio duration the server should keep queued during playback.
+    uint16_t min_buffer_ms{100};
+
     /// @brief Default extra silence (ms) inserted at stream start for decode-pipeline headroom
     static constexpr uint16_t DEFAULT_EXTRA_STARTUP_SILENCE_MS = 50U;
 
