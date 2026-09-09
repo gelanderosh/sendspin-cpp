@@ -17,8 +17,10 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <limits>
 
 #ifdef ESP_PLATFORM
+#include <mbedtls/chachapoly.h>
 #include <mbedtls/ecdh.h>
 #include <mbedtls/ecp.h>
 #include <mbedtls/sha256.h>
@@ -85,6 +87,95 @@ bool x25519_openssl(const ProtocolCrypto::X25519Key& private_key,
     EVP_PKEY_CTX_free(context);
     EVP_PKEY_free(peer);
     EVP_PKEY_free(local);
+    return success;
+}
+#endif
+
+bool is_valid_aead_input(const uint8_t* aad, size_t aad_size, const uint8_t* input,
+                         size_t input_size, const uint8_t* output) {
+    return (aad_size == 0 || aad != nullptr) && (input_size == 0 || input != nullptr) &&
+           (input_size == 0 || output != nullptr);
+}
+
+#ifdef ESP_PLATFORM
+bool chacha20_poly1305_encrypt_mbedtls(const ProtocolCrypto::ChaCha20Poly1305Key& key,
+                                       const ProtocolCrypto::ChaCha20Poly1305Nonce& nonce,
+                                       const uint8_t* aad, size_t aad_size, const uint8_t* plaintext,
+                                       size_t plaintext_size, uint8_t* ciphertext,
+                                       ProtocolCrypto::ChaCha20Poly1305Tag* tag) {
+    mbedtls_chachapoly_context context;
+    mbedtls_chachapoly_init(&context);
+    const bool success = mbedtls_chachapoly_setkey(&context, key.data()) == 0 &&
+                         mbedtls_chachapoly_encrypt_and_tag(&context, plaintext_size, nonce.data(),
+                                                            aad, aad_size, plaintext, ciphertext,
+                                                            tag->data()) == 0;
+    mbedtls_chachapoly_free(&context);
+    return success;
+}
+
+bool chacha20_poly1305_decrypt_mbedtls(const ProtocolCrypto::ChaCha20Poly1305Key& key,
+                                       const ProtocolCrypto::ChaCha20Poly1305Nonce& nonce,
+                                       const uint8_t* aad, size_t aad_size, const uint8_t* ciphertext,
+                                       size_t ciphertext_size,
+                                       const ProtocolCrypto::ChaCha20Poly1305Tag& tag,
+                                       uint8_t* plaintext) {
+    mbedtls_chachapoly_context context;
+    mbedtls_chachapoly_init(&context);
+    const bool success = mbedtls_chachapoly_setkey(&context, key.data()) == 0 &&
+                         mbedtls_chachapoly_auth_decrypt(&context, ciphertext_size, nonce.data(),
+                                                         aad, aad_size, tag.data(), ciphertext,
+                                                         plaintext) == 0;
+    mbedtls_chachapoly_free(&context);
+    return success;
+}
+#else
+bool chacha20_poly1305_encrypt_openssl(const ProtocolCrypto::ChaCha20Poly1305Key& key,
+                                       const ProtocolCrypto::ChaCha20Poly1305Nonce& nonce,
+                                       const uint8_t* aad, size_t aad_size, const uint8_t* plaintext,
+                                       size_t plaintext_size, uint8_t* ciphertext,
+                                       ProtocolCrypto::ChaCha20Poly1305Tag* tag) {
+    if (aad_size > static_cast<size_t>(std::numeric_limits<int>::max()) ||
+        plaintext_size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        return false;
+    }
+    EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
+    int output_size = 0;
+    const bool success = context != nullptr &&
+                         EVP_EncryptInit_ex(context, EVP_chacha20_poly1305(), nullptr, nullptr, nullptr) == 1 &&
+                         EVP_EncryptInit_ex(context, nullptr, nullptr, key.data(), nonce.data()) == 1 &&
+                         (aad_size == 0 || EVP_EncryptUpdate(context, nullptr, &output_size, aad,
+                                                              static_cast<int>(aad_size)) == 1) &&
+                         (plaintext_size == 0 || EVP_EncryptUpdate(context, ciphertext, &output_size, plaintext,
+                                                                    static_cast<int>(plaintext_size)) == 1) &&
+                         EVP_EncryptFinal_ex(context, ciphertext + output_size, &output_size) == 1 &&
+                         EVP_CIPHER_CTX_ctrl(context, EVP_CTRL_AEAD_GET_TAG, tag->size(), tag->data()) == 1;
+    EVP_CIPHER_CTX_free(context);
+    return success;
+}
+
+bool chacha20_poly1305_decrypt_openssl(const ProtocolCrypto::ChaCha20Poly1305Key& key,
+                                       const ProtocolCrypto::ChaCha20Poly1305Nonce& nonce,
+                                       const uint8_t* aad, size_t aad_size, const uint8_t* ciphertext,
+                                       size_t ciphertext_size,
+                                       const ProtocolCrypto::ChaCha20Poly1305Tag& tag,
+                                       uint8_t* plaintext) {
+    if (aad_size > static_cast<size_t>(std::numeric_limits<int>::max()) ||
+        ciphertext_size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        return false;
+    }
+    EVP_CIPHER_CTX* context = EVP_CIPHER_CTX_new();
+    int output_size = 0;
+    const bool success = context != nullptr &&
+                         EVP_DecryptInit_ex(context, EVP_chacha20_poly1305(), nullptr, nullptr, nullptr) == 1 &&
+                         EVP_DecryptInit_ex(context, nullptr, nullptr, key.data(), nonce.data()) == 1 &&
+                         (aad_size == 0 || EVP_DecryptUpdate(context, nullptr, &output_size, aad,
+                                                              static_cast<int>(aad_size)) == 1) &&
+                         (ciphertext_size == 0 || EVP_DecryptUpdate(context, plaintext, &output_size, ciphertext,
+                                                                     static_cast<int>(ciphertext_size)) == 1) &&
+                         EVP_CIPHER_CTX_ctrl(context, EVP_CTRL_AEAD_SET_TAG, tag.size(),
+                                             const_cast<uint8_t*>(tag.data())) == 1 &&
+                         EVP_DecryptFinal_ex(context, plaintext + output_size, &output_size) == 1;
+    EVP_CIPHER_CTX_free(context);
     return success;
 }
 #endif
@@ -201,6 +292,44 @@ bool ProtocolCrypto::x25519_shared_secret(const X25519Key& private_key,
 #else
     return x25519_openssl(clamp_x25519_private_key(private_key), peer_public_key, shared_secret);
 #endif
+}
+
+bool ProtocolCrypto::chacha20_poly1305_encrypt(const ChaCha20Poly1305Key& key,
+                                                const ChaCha20Poly1305Nonce& nonce,
+                                                const uint8_t* aad, size_t aad_size,
+                                                const uint8_t* plaintext, size_t plaintext_size,
+                                                uint8_t* ciphertext, ChaCha20Poly1305Tag* tag) {
+    if (tag == nullptr || !is_valid_aead_input(aad, aad_size, plaintext, plaintext_size, ciphertext)) {
+        return false;
+    }
+#ifdef ESP_PLATFORM
+    return chacha20_poly1305_encrypt_mbedtls(key, nonce, aad, aad_size, plaintext, plaintext_size,
+                                             ciphertext, tag);
+#else
+    return chacha20_poly1305_encrypt_openssl(key, nonce, aad, aad_size, plaintext, plaintext_size,
+                                             ciphertext, tag);
+#endif
+}
+
+bool ProtocolCrypto::chacha20_poly1305_decrypt(const ChaCha20Poly1305Key& key,
+                                                const ChaCha20Poly1305Nonce& nonce,
+                                                const uint8_t* aad, size_t aad_size,
+                                                const uint8_t* ciphertext, size_t ciphertext_size,
+                                                const ChaCha20Poly1305Tag& tag, uint8_t* plaintext) {
+    if (!is_valid_aead_input(aad, aad_size, ciphertext, ciphertext_size, plaintext)) {
+        return false;
+    }
+#ifdef ESP_PLATFORM
+    const bool success = chacha20_poly1305_decrypt_mbedtls(key, nonce, aad, aad_size, ciphertext,
+                                                           ciphertext_size, tag, plaintext);
+#else
+    const bool success = chacha20_poly1305_decrypt_openssl(key, nonce, aad, aad_size, ciphertext,
+                                                           ciphertext_size, tag, plaintext);
+#endif
+    if (!success && ciphertext_size > 0) {
+        std::fill(plaintext, plaintext + ciphertext_size, 0);
+    }
+    return success;
 }
 
 }  // namespace sendspin

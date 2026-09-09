@@ -26,8 +26,14 @@ class ProtocolCrypto {
 public:
     static constexpr size_t SHA256_SIZE = 32;
     static constexpr size_t X25519_KEY_SIZE = 32;
+    static constexpr size_t CHACHA20_POLY1305_KEY_SIZE = 32;
+    static constexpr size_t CHACHA20_POLY1305_NONCE_SIZE = 12;
+    static constexpr size_t CHACHA20_POLY1305_TAG_SIZE = 16;
     using Sha256Digest = std::array<uint8_t, SHA256_SIZE>;
     using X25519Key = std::array<uint8_t, X25519_KEY_SIZE>;
+    using ChaCha20Poly1305Key = std::array<uint8_t, CHACHA20_POLY1305_KEY_SIZE>;
+    using ChaCha20Poly1305Nonce = std::array<uint8_t, CHACHA20_POLY1305_NONCE_SIZE>;
+    using ChaCha20Poly1305Tag = std::array<uint8_t, CHACHA20_POLY1305_TAG_SIZE>;
 
     /// @brief Calculates the SHA-256 digest of the supplied bytes.
     static bool sha256(const uint8_t* input, size_t input_size, Sha256Digest* digest);
@@ -48,6 +54,20 @@ public:
     static bool x25519_shared_secret(const X25519Key& private_key,
                                      const X25519Key& peer_public_key,
                                      X25519Key* shared_secret);
+
+    /// @brief Encrypts and authenticates a message with ChaCha20-Poly1305.
+    static bool chacha20_poly1305_encrypt(const ChaCha20Poly1305Key& key,
+                                          const ChaCha20Poly1305Nonce& nonce,
+                                          const uint8_t* aad, size_t aad_size,
+                                          const uint8_t* plaintext, size_t plaintext_size,
+                                          uint8_t* ciphertext, ChaCha20Poly1305Tag* tag);
+
+    /// @brief Authenticates and decrypts a ChaCha20-Poly1305 message.
+    static bool chacha20_poly1305_decrypt(const ChaCha20Poly1305Key& key,
+                                          const ChaCha20Poly1305Nonce& nonce,
+                                          const uint8_t* aad, size_t aad_size,
+                                          const uint8_t* ciphertext, size_t ciphertext_size,
+                                          const ChaCha20Poly1305Tag& tag, uint8_t* plaintext);
 };
 
 }  // namespace sendspin
