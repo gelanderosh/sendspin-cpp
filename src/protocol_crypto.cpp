@@ -19,12 +19,77 @@
 #include <cstring>
 
 #ifdef ESP_PLATFORM
+#include <mbedtls/ecdh.h>
+#include <mbedtls/ecp.h>
 #include <mbedtls/sha256.h>
 #else
-#include <openssl/sha.h>
+#include <openssl/evp.h>
 #endif
 
 namespace sendspin {
+
+namespace {
+
+ProtocolCrypto::X25519Key clamp_x25519_private_key(ProtocolCrypto::X25519Key private_key) {
+    private_key[0] &= 248U;
+    private_key[31] &= 127U;
+    private_key[31] |= 64U;
+    return private_key;
+}
+
+#ifdef ESP_PLATFORM
+bool x25519_mbedtls(const ProtocolCrypto::X25519Key& private_key,
+                    const ProtocolCrypto::X25519Key& peer_public_key,
+                    ProtocolCrypto::X25519Key* shared_secret) {
+    mbedtls_ecp_group group;
+    mbedtls_ecp_point peer_point;
+    mbedtls_mpi private_scalar;
+    mbedtls_mpi shared_scalar;
+    mbedtls_ecp_group_init(&group);
+    mbedtls_ecp_point_init(&peer_point);
+    mbedtls_mpi_init(&private_scalar);
+    mbedtls_mpi_init(&shared_scalar);
+
+    const auto clamped_key = clamp_x25519_private_key(private_key);
+    const bool success = mbedtls_ecp_group_load(&group, MBEDTLS_ECP_DP_CURVE25519) == 0 &&
+                         mbedtls_mpi_read_binary_le(&private_scalar, clamped_key.data(),
+                                                    clamped_key.size()) == 0 &&
+                         mbedtls_mpi_read_binary_le(&peer_point.MBEDTLS_PRIVATE(X),
+                                                    peer_public_key.data(), peer_public_key.size()) == 0 &&
+                         mbedtls_mpi_lset(&peer_point.MBEDTLS_PRIVATE(Z), 1) == 0 &&
+                         mbedtls_ecdh_compute_shared(&group, &shared_scalar, &peer_point,
+                                                     &private_scalar, nullptr, nullptr) == 0 &&
+                         mbedtls_mpi_write_binary_le(&shared_scalar, shared_secret->data(),
+                                                     shared_secret->size()) == 0;
+
+    mbedtls_mpi_free(&shared_scalar);
+    mbedtls_mpi_free(&private_scalar);
+    mbedtls_ecp_point_free(&peer_point);
+    mbedtls_ecp_group_free(&group);
+    return success;
+}
+#else
+bool x25519_openssl(const ProtocolCrypto::X25519Key& private_key,
+                    const ProtocolCrypto::X25519Key& peer_public_key,
+                    ProtocolCrypto::X25519Key* shared_secret) {
+    EVP_PKEY* local = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr,
+                                                    private_key.data(), private_key.size());
+    EVP_PKEY* peer = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, nullptr,
+                                                  peer_public_key.data(), peer_public_key.size());
+    EVP_PKEY_CTX* context = local != nullptr ? EVP_PKEY_CTX_new(local, nullptr) : nullptr;
+    size_t output_size = shared_secret->size();
+    const bool success = context != nullptr && peer != nullptr && EVP_PKEY_derive_init(context) == 1 &&
+                         EVP_PKEY_derive_set_peer(context, peer) == 1 &&
+                         EVP_PKEY_derive(context, shared_secret->data(), &output_size) == 1 &&
+                         output_size == shared_secret->size();
+    EVP_PKEY_CTX_free(context);
+    EVP_PKEY_free(peer);
+    EVP_PKEY_free(local);
+    return success;
+}
+#endif
+
+}  // namespace
 
 bool ProtocolCrypto::sha256(const uint8_t* input, size_t input_size, Sha256Digest* digest) {
     if (input == nullptr || digest == nullptr) {
@@ -34,7 +99,7 @@ bool ProtocolCrypto::sha256(const uint8_t* input, size_t input_size, Sha256Diges
 #ifdef ESP_PLATFORM
     return mbedtls_sha256(input, input_size, digest->data(), 0) == 0;
 #else
-    return SHA256(input, input_size, digest->data()) != nullptr;
+    return EVP_Q_digest(nullptr, "SHA256", nullptr, input, input_size, digest->data(), nullptr) == 1;
 #endif
 }
 
@@ -115,6 +180,27 @@ bool ProtocolCrypto::hkdf_sha256(const uint8_t* salt, size_t salt_size, const ui
         previous_size = SHA256_SIZE;
     }
     return true;
+}
+
+bool ProtocolCrypto::x25519_public_key(const X25519Key& private_key, X25519Key* public_key) {
+    if (public_key == nullptr) {
+        return false;
+    }
+    constexpr X25519Key basepoint{9};
+    return x25519_shared_secret(private_key, basepoint, public_key);
+}
+
+bool ProtocolCrypto::x25519_shared_secret(const X25519Key& private_key,
+                                          const X25519Key& peer_public_key,
+                                          X25519Key* shared_secret) {
+    if (shared_secret == nullptr) {
+        return false;
+    }
+#ifdef ESP_PLATFORM
+    return x25519_mbedtls(private_key, peer_public_key, shared_secret);
+#else
+    return x25519_openssl(clamp_x25519_private_key(private_key), peer_public_key, shared_secret);
+#endif
 }
 
 }  // namespace sendspin
