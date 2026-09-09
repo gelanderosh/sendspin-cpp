@@ -20,6 +20,7 @@ public:
                SendspinPersistenceProvider* persistence, std::string* client_init);
     bool receive_server_init(const std::string& server_init);
     bool receive_server_handshake(const std::string& handshake, std::string* client_handshake);
+    bool expects_server_init() const;
     bool ready() const;
     const std::string& server_id() const;
     SendspinProtocolV1PskKind psk_kind() const;

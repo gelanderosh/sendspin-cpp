@@ -629,7 +629,19 @@ bool ConnectionManager::send_hello_message(uint8_t remaining_attempts, SendspinC
         return true;
     }
 
-    std::string hello_message = this->client_->build_hello_message();
+    std::string hello_message;
+    const auto identity = this->client_->persistence_provider_
+                              ? this->client_->persistence_provider_->load_protocol_v1_identity_private_key()
+                              : std::nullopt;
+    if (identity.has_value()) {
+        if (!conn->begin_protocol_v1(*identity, this->client_->config_.client_id,
+                                     this->client_->persistence_provider_, &hello_message)) {
+            SS_LOGE(TAG, "Unable to start protocol-v1 session");
+            return true;
+        }
+    } else {
+        hello_message = this->client_->build_hello_message();
+    }
 
     SsErr err = conn->send_text_message(
         hello_message,
@@ -643,7 +655,9 @@ bool ConnectionManager::send_hello_message(uint8_t remaining_attempts, SendspinC
                 SS_LOGW(TAG, "Hello message send failed");
                 return;
             }
-            conn->set_client_hello_sent(true);
+            if (!conn->is_protocol_v1()) {
+                conn->set_client_hello_sent(true);
+            }
         },
         /*allow_before_hello=*/true);
 

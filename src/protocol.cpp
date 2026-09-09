@@ -313,6 +313,9 @@ SendspinServerToClientMessageType determine_message_type(JsonObject root) {
     if (type_str == "group/update") {
         return SendspinServerToClientMessageType::GROUP_UPDATE;
     }
+    if (type_str == "server/activate") {
+        return SendspinServerToClientMessageType::SERVER_ACTIVATE;
+    }
 
     return SendspinServerToClientMessageType::UNKNOWN;
 }
@@ -320,44 +323,61 @@ SendspinServerToClientMessageType determine_message_type(JsonObject root) {
 // Message processing
 
 bool process_server_hello_message(JsonObject root, ServerHelloMessage* hello_msg) {
-    if (!root["payload"]["server_id"].is<JsonVariant>() ||
-        !root["payload"]["name"].is<JsonVariant>() ||
-        !root["payload"]["version"].is<JsonVariant>() ||
-        !root["payload"]["active_roles"].is<JsonVariant>() ||
-        !root["payload"]["connection_reason"].is<const char*>()) {
+    if (!root["payload"]["name"].is<const char*>()) {
         SS_LOGE(TAG, "Invalid server/hello message");
         return false;
     }
-
-    if (hello_msg != nullptr) {
-        hello_msg->server.server_id = root["payload"]["server_id"].as<std::string>();
-        hello_msg->server.name = root["payload"]["name"].as<std::string>();
-        auto version = read_uint_field<uint16_t>(root["payload"]["version"], "version");
-        if (!version.has_value()) {
-            SS_LOGE(TAG, "Invalid version in server/hello message");
+    const bool legacy_hello = root["payload"]["server_id"].is<const char*>();
+    if (!root["payload"]["version"].isUnbound()) {
+        const auto version = read_uint_field<uint16_t>(root["payload"]["version"], "version");
+        if (!version.has_value() || (!legacy_hello && *version != 1)) {
             return false;
         }
-        hello_msg->version = *version;
-
-        // Parse active_roles array
-        hello_msg->active_roles.clear();
-        JsonArrayConst active_roles_array = root["payload"]["active_roles"].as<JsonArrayConst>();
-        for (JsonVariantConst role_var : active_roles_array) {
-            if (role_var.is<const char*>()) {
-                hello_msg->active_roles.push_back(role_var.as<std::string>());
-            }
-        }
-
-        auto reason =
-            connection_reason_from_string(root["payload"]["connection_reason"].as<std::string>());
-        if (!reason.has_value()) {
-            SS_LOGE(TAG, "Invalid connection_reason in server/hello message: %s",
-                    root["payload"]["connection_reason"].as<const char*>());
-            return false;
-        }
-        hello_msg->connection_reason = reason.value();
     }
 
+    if (hello_msg != nullptr) {
+        if (root["payload"]["server_id"].is<const char*>()) {
+            hello_msg->server.server_id = root["payload"]["server_id"].as<std::string>();
+        }
+        hello_msg->server.name = root["payload"]["name"].as<std::string>();
+        if (!root["payload"]["version"].isUnbound()) {
+            hello_msg->version = root["payload"]["version"].as<uint16_t>();
+        }
+        hello_msg->active_roles.clear();
+        if (root["payload"]["active_roles"].is<JsonArrayConst>()) {
+            const JsonArrayConst active_roles = root["payload"]["active_roles"].as<JsonArrayConst>();
+            for (JsonVariantConst role : active_roles) {
+                if (role.is<const char*>()) {
+                    hello_msg->active_roles.emplace_back(role.as<const char*>());
+                }
+            }
+        }
+        hello_msg->connection_reason = SendspinConnectionReason::DISCOVERY;
+        if (root["payload"]["connection_reason"].is<const char*>()) {
+            const auto reason = connection_reason_from_string(
+                root["payload"]["connection_reason"].as<std::string>());
+            if (!reason.has_value()) {
+                return false;
+            }
+            hello_msg->connection_reason = *reason;
+        }
+    }
+
+    return true;
+}
+
+bool process_server_activate_message(JsonObject root, ServerActivateMessage* activate_msg) {
+    if (activate_msg == nullptr || !root["payload"]["activities"].is<JsonArrayConst>()) {
+        return false;
+    }
+    activate_msg->active_roles.clear();
+    JsonArrayConst roles = root["payload"]["active_roles"].as<JsonArrayConst>();
+    for (JsonVariantConst role : roles) {
+        if (!role.is<const char*>()) {
+            return false;
+        }
+        activate_msg->active_roles.emplace_back(role.as<const char*>());
+    }
     return true;
 }
 

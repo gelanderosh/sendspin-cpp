@@ -110,6 +110,7 @@ bool ProtocolV1ResponderSession::receive_server_handshake(const std::string& mes
 }
 
 bool ProtocolV1ResponderSession::ready() const { return phase_ == Phase::READY; }
+bool ProtocolV1ResponderSession::expects_server_init() const { return phase_ == Phase::WAIT_SERVER_INIT; }
 const std::string& ProtocolV1ResponderSession::server_id() const { return server_id_; }
 SendspinProtocolV1PskKind ProtocolV1ResponderSession::psk_kind() const { return psk_kind_; }
 NoiseCipherState* ProtocolV1ResponderSession::send_cipher() { return ready() ? &send_cipher_ : nullptr; }

@@ -512,7 +512,7 @@ void SendspinClient::publish_state() {
 void SendspinClient::send_text(const std::string& text) {
     auto* conn = this->connection_manager_->current();
     if (conn != nullptr && conn->is_connected()) {
-        conn->send_text_message(text, nullptr);
+        conn->send_protocol_json(text);
     }
 }
 
@@ -794,17 +794,21 @@ void SendspinClient::process_json_message(SendspinConnection* conn, const char* 
         case SendspinServerToClientMessageType::SERVER_HELLO: {
             ServerHelloMessage hello_msg;
             if (process_server_hello_message(root, &hello_msg)) {
+                if (conn != nullptr && conn->is_protocol_v1()) {
+                    hello_msg.server.server_id = conn->get_server_id();
+                }
                 SS_LOGD(TAG, "Connected to server %s with id %s (reason: %s)",
                         hello_msg.server.name.c_str(), hello_msg.server.server_id.c_str(),
                         to_cstr(hello_msg.connection_reason));
 
                 if (conn != nullptr) {
                     conn->set_server_information(std::move(hello_msg.server));
-                    conn->set_connection_reason(hello_msg.connection_reason);
-                    // Set last: this atomic store publishes the fields above to the manager's
-                    // promotion scan on the main loop, which observes is_handshake_complete()
-                    // and establishes the connection; nothing needs to be scheduled here.
                     conn->set_server_hello_received(true);
+                    conn->send_protocol_json(this->build_hello_message(), [conn](bool sent) {
+                        if (sent) {
+                            conn->set_client_hello_sent(true);
+                        }
+                    });
                 }
             }
             break;
@@ -881,6 +885,13 @@ void SendspinClient::process_json_message(SendspinConnection* conn, const char* 
                         apply_group_update_deltas(&current, delta);
                     },
                     std::move(group_msg.group));
+            }
+            break;
+        }
+        case SendspinServerToClientMessageType::SERVER_ACTIVATE: {
+            ServerActivateMessage activate_msg;
+            if (conn != nullptr && process_server_activate_message(root, &activate_msg)) {
+                conn->set_protocol_v1_activated(true);
             }
             break;
         }
@@ -962,7 +973,7 @@ void SendspinClient::publish_client_state(SendspinConnection* conn) {
 #endif
 
     std::string state_message = format_client_state_message(&state_msg);
-    conn->send_text_message(state_message, nullptr);
+    conn->send_protocol_json(state_message);
 }
 
 // ============================================================================

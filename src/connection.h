@@ -21,6 +21,7 @@
 #include "platform/memory.h"
 #include "platform/types.h"
 #include "protocol_messages.h"
+#include "protocol_v1_session.h"
 #include "time_filter.h"
 
 #include <atomic>
@@ -105,7 +106,8 @@ public:
     /// @brief Checks if the hello handshake has completed successfully
     /// @return true if handshake complete (hello exchange done), false otherwise.
     bool is_handshake_complete() const {
-        return this->client_hello_sent_ && this->server_hello_received_;
+        return this->client_hello_sent_ && this->server_hello_received_ &&
+               (!this->protocol_v1_session_ || this->protocol_v1_activated_);
     }
 
     /// @brief Gets the socket file descriptor for this connection
@@ -155,6 +157,18 @@ public:
     /// @brief Sends a raw WebSocket binary frame. Protocol-v1 uses this for Noise ciphertexts.
     virtual SsErr send_binary_message(const uint8_t* payload, size_t payload_size,
                                       SendCompleteCallback cb) = 0;
+
+    /// @brief Encrypts and sends a protocol-v1 JSON application message.
+    SsErr send_protocol_json(const std::string& message, SendCompleteCallback cb = nullptr);
+
+    /// @brief Starts the cleartext protocol-v1 init exchange and returns client/init bytes.
+    bool begin_protocol_v1(const SendspinProtocolV1::Key& identity_private_key,
+                           const std::string& client_id, SendspinPersistenceProvider* persistence,
+                           std::string* client_init);
+
+    void set_protocol_v1_activated(bool activated) { protocol_v1_activated_ = activated; }
+
+    bool is_protocol_v1() const { return protocol_v1_session_ != nullptr; }
 
     /// @brief Sends a client/time synchronization message
     ///
@@ -387,6 +401,9 @@ protected:
     /// @param receive_time Timestamp when the data was received (microseconds).
     void dispatch_completed_message(bool is_text, int64_t receive_time);
 
+    bool dispatch_protocol_v1_text(const std::string& message);
+    bool dispatch_protocol_v1_binary(int64_t receive_time);
+
     /// @brief Returns the next process-unique connection id (starts at 1, monotonic).
     /// @note The function-local atomic gives thread-safe, ordering-independent uniqueness.
     static uint64_t next_instance_id() {
@@ -406,6 +423,7 @@ protected:
 
     /// Time synchronization filter (Kalman-based).
     std::unique_ptr<SendspinTimeFilter> time_filter_;
+    std::unique_ptr<ProtocolV1ResponderSession> protocol_v1_session_;
 
     // 64-bit fields
 
@@ -457,6 +475,7 @@ protected:
     /// Atomic for the same reason as client_hello_sent_: written on network threads, read from the
     /// main loop via is_handshake_complete().
     std::atomic<bool> server_hello_received_{false};
+    std::atomic<bool> protocol_v1_activated_{false};
 
     /// Memory placement preference for `websocket_payload_` allocations (ESP-IDF only).
     MemoryLocation websocket_payload_location_{MemoryLocation::PREFER_EXTERNAL};

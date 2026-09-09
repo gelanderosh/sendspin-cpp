@@ -46,8 +46,40 @@ SsErr SendspinConnection::send_goodbye_reason(SendspinGoodbyeReason reason,
                                               SendCompleteCallback on_complete) {
     // Goodbye is a control message that may legitimately be sent before the client/hello (e.g.,
     // when rejecting an excess connection), so it bypasses the pre-hello send gate.
-    return this->send_text_message(format_client_goodbye_message(reason), std::move(on_complete),
-                                   /*allow_before_hello=*/true);
+    const std::string message = format_client_goodbye_message(reason);
+    if (this->protocol_v1_session_ && this->protocol_v1_session_->ready()) {
+        return this->send_protocol_json(message, std::move(on_complete));
+    }
+    return this->send_text_message(message, std::move(on_complete), true);
+}
+
+bool SendspinConnection::begin_protocol_v1(const SendspinProtocolV1::Key& identity_private_key,
+                                           const std::string& client_id,
+                                           SendspinPersistenceProvider* persistence,
+                                           std::string* client_init) {
+    protocol_v1_session_ = std::make_unique<ProtocolV1ResponderSession>();
+    protocol_v1_activated_ = false;
+    return protocol_v1_session_->begin(identity_private_key, client_id, persistence, client_init);
+}
+
+SsErr SendspinConnection::send_protocol_json(const std::string& message, SendCompleteCallback cb) {
+    if (!protocol_v1_session_ || !protocol_v1_session_->ready()) {
+        return SsErr::INVALID_STATE;
+    }
+    std::vector<std::vector<uint8_t>> frames;
+    if (!protocol_v1_session_->transport()->encrypt(
+            ProtocolV1Transport::JSON_TYPE, reinterpret_cast<const uint8_t*>(message.data()), message.size(),
+            protocol_v1_session_->send_cipher(), &frames)) {
+        return SsErr::FAIL;
+    }
+    for (size_t index = 0; index < frames.size(); ++index) {
+        const SsErr result = send_binary_message(frames[index].data(), frames[index].size(),
+                                                 index + 1 == frames.size() ? cb : nullptr);
+        if (result != SsErr::OK) {
+            return result;
+        }
+    }
+    return SsErr::OK;
 }
 
 // ============================================================================
@@ -98,7 +130,16 @@ SS_HOT void SendspinConnection::dispatch_completed_message(bool is_text, int64_t
         return;
     }
 
-    if (is_text) {
+    if (protocol_v1_session_) {
+        const bool accepted = is_text
+                                  ? dispatch_protocol_v1_text(std::string(
+                                        reinterpret_cast<const char*>(websocket_payload_.data()),
+                                        websocket_write_offset_))
+                                  : dispatch_protocol_v1_binary(receive_time);
+        if (!accepted) {
+            SS_LOGW(TAG, "Invalid protocol-v1 frame");
+        }
+    } else if (is_text) {
         // Hand the JSON callback a pointer straight into the reassembly buffer instead of copying
         // it into a std::string. The callback parses synchronously; reset_websocket_payload()
         // below makes the buffer reusable as soon as it returns, so the callback must not retain
@@ -118,6 +159,48 @@ SS_HOT void SendspinConnection::dispatch_completed_message(bool is_text, int64_t
 
     // Reset write offset for next message; keep buffer allocated for reuse
     this->reset_websocket_payload();
+}
+
+bool SendspinConnection::dispatch_protocol_v1_text(const std::string& message) {
+    if (!protocol_v1_session_ || protocol_v1_session_->ready()) {
+        return false;
+    }
+    if (protocol_v1_session_->expects_server_init()) {
+        if (!protocol_v1_session_->receive_server_init(message)) {
+            return false;
+        }
+        server_information_.server_id = protocol_v1_session_->server_id();
+        return true;
+    }
+    std::string response;
+    if (!protocol_v1_session_->receive_server_handshake(message, &response)) {
+        return false;
+    }
+    return send_text_message(response, nullptr, true) == SsErr::OK;
+}
+
+bool SendspinConnection::dispatch_protocol_v1_binary(int64_t receive_time) {
+    if (!protocol_v1_session_ || !protocol_v1_session_->ready()) {
+        return false;
+    }
+    std::optional<ProtocolV1TransportMessage> message;
+    if (!protocol_v1_session_->transport()->decrypt(websocket_payload_.data(), websocket_write_offset_,
+                                                    protocol_v1_session_->receive_cipher(), &message)) {
+        return false;
+    }
+    if (!message.has_value()) {
+        return true;
+    }
+    if (message->type == ProtocolV1Transport::JSON_TYPE && on_json_message_cb) {
+        on_json_message_cb(this, reinterpret_cast<const char*>(message->payload.data()), message->payload.size(),
+                           receive_time);
+        return true;
+    }
+    if (message->type != ProtocolV1Transport::JSON_TYPE && on_binary_message_cb) {
+        on_binary_message_cb(this, message->payload.data(), message->payload.size());
+        return true;
+    }
+    return false;
 }
 
 }  // namespace sendspin

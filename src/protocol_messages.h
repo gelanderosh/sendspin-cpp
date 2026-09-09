@@ -94,6 +94,7 @@ enum class SendspinServerToClientMessageType : uint8_t {
     STREAM_END,      // stream/end normal stream completion
     STREAM_CLEAR,    // stream/clear immediate buffer flush
     GROUP_UPDATE,    // group/update group membership change
+    SERVER_ACTIVATE, // server/activate grants activities and roles
     UNKNOWN,         // Unrecognized message type
 };
 
@@ -639,6 +640,10 @@ struct ServerHelloMessage {
     SendspinConnectionReason connection_reason{};
 };
 
+struct ServerActivateMessage {
+    std::vector<std::string> active_roles;
+};
+
 /// @brief Parsed group/update message containing the group state delta
 struct GroupUpdateMessage {
     GroupUpdateObject group;
@@ -683,6 +688,7 @@ SendspinServerToClientMessageType determine_message_type(JsonObject root);
 /// @param hello_msg [out] Struct to populate with parsed fields.
 /// @return true if parsing succeeded, false on missing required fields.
 bool process_server_hello_message(JsonObject root, ServerHelloMessage* hello_msg);
+bool process_server_activate_message(JsonObject root, ServerActivateMessage* activate_msg);
 
 /// @brief Parses a server/time JSON message and computes time offset and max error
 /// @param root Parsed JSON object from the message.
