@@ -137,7 +137,10 @@ SS_HOT void SendspinConnection::dispatch_completed_message(bool is_text, int64_t
                                         websocket_write_offset_))
                                   : dispatch_protocol_v1_binary(receive_time);
         if (!accepted) {
-            SS_LOGW(TAG, "Invalid protocol-v1 frame");
+            this->disable_message_dispatch();
+            this->reset_websocket_payload();
+            this->abort_transport();
+            return;
         }
     } else if (is_text) {
         // Hand the JSON callback a pointer straight into the reassembly buffer instead of copying

@@ -113,6 +113,8 @@ public:
     }
 
 protected:
+    void abort_transport() override;
+
     /// @brief Static event handler for ESP-IDF websocket client events
     /// @param handler_args User context (pointer to this SendspinClientConnection instance).
     /// @param base Event base.

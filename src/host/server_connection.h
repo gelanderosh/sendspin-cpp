@@ -100,6 +100,8 @@ public:
     void handle_message(const std::string& data, bool is_binary, int64_t receive_time);
 
 protected:
+    void abort_transport() override;
+
     // Pointer fields
 
     /// @brief The IXWebSocket instance for this connection (shared with the server)

@@ -98,6 +98,8 @@ public:
     }
 
 protected:
+    void abort_transport() override;
+
     /// @brief Registers the IXWebSocket message callback to handle open, close, data, and error
     /// events
     void setup_callbacks();

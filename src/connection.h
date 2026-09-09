@@ -369,6 +369,9 @@ public:
     }
 
 protected:
+    /// @brief Closes the underlying transport without sending protocol traffic.
+    virtual void abort_transport() = 0;
+
     /// @brief Deallocates the websocket payload buffer if allocated
     void deallocate_websocket_payload();
 

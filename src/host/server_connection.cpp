@@ -123,6 +123,8 @@ void SendspinServerConnection::trigger_close() {
     }
 }
 
+void SendspinServerConnection::abort_transport() { this->trigger_close(); }
+
 void SendspinServerConnection::handle_message(const std::string& data, bool is_binary,
                                               int64_t receive_time) {
     if (!data.empty()) {

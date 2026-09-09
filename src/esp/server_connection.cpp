@@ -223,6 +223,8 @@ void SendspinServerConnection::trigger_close() {
     httpd_sess_trigger_close(this->server_, this->sockfd_);
 }
 
+void SendspinServerConnection::abort_transport() { this->trigger_close(); }
+
 SS_HOT esp_err_t SendspinServerConnection::handle_data(httpd_req_t* req, int64_t receive_time) {
     // The connection was delivered (and marked WS-upgraded) from the upgrade GET before any
     // frame can arrive; frames on a never-delivered connection are dropped by the null guards

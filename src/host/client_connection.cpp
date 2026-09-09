@@ -154,6 +154,12 @@ bool SendspinClientConnection::send_time_message() {
     return this->ws_->send(std::string(buf, len)).success;
 }
 
+void SendspinClientConnection::abort_transport() {
+    if (this->ws_) {
+        this->ws_->close();
+    }
+}
+
 // ============================================================================
 // Private helpers / callbacks
 // ============================================================================

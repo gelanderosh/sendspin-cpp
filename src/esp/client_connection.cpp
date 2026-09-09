@@ -202,6 +202,20 @@ bool SendspinClientConnection::send_time_message() {
     return true;
 }
 
+void SendspinClientConnection::abort_transport() {
+    if (this->client_ == nullptr) {
+        return;
+    }
+    if (xTaskCreate(
+            [](void* arg) {
+                esp_websocket_client_stop(static_cast<esp_websocket_client_handle_t>(arg));
+                vTaskDelete(nullptr);
+            },
+            "ss_ws_stop", 2048, this->client_, tskIDLE_PRIORITY + 1, nullptr) != pdPASS) {
+        SS_LOGE(TAG, "Failed to schedule WebSocket stop");
+    }
+}
+
 // ============================================================================
 // Private helpers / callbacks
 // ============================================================================

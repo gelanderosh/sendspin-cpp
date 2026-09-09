@@ -140,6 +140,8 @@ public:
     esp_err_t handle_data(httpd_req_t* req, int64_t receive_time);
 
 protected:
+    void abort_transport() override;
+
     /// @brief httpd_queue_work callback that sends a queued text frame over the WebSocket
     /// @param arg Pointer to the AsyncRespArg context allocated by send_text_message().
     static void async_send_text(void* arg);
