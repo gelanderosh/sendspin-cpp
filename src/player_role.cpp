@@ -16,6 +16,8 @@
 #include "platform/base64.h"
 #include "platform/compiler.h"
 #include "platform/logging.h"
+#include "platform/time.h"
+#include "platform/thread.h"
 #include "player_role_impl.h"
 #include "protocol_messages.h"
 #include "sendspin/client.h"
@@ -26,6 +28,9 @@ static const char* const TAG = "sendspin.player";
 static constexpr size_t BINARY_TIMESTAMP_SIZE = 8;
 static constexpr uint16_t MAX_STATIC_DELAY_MS = 5000U;
 static constexpr uint32_t HEADER_SEND_TIMEOUT_MS = 100U;
+static constexpr uint32_t AUDIO_CHUNK_SEND_TIMEOUT_MS = 50U;
+static constexpr uint32_t AUDIO_INGRESS_RECEIVE_TIMEOUT_MS = 50U;
+static constexpr size_t AUDIO_INGRESS_TASK_STACK_SIZE = 4096U;
 // Denominator for the advertised buffer capacity fraction: advertises (N-1)/N of capacity
 static constexpr size_t AUDIO_BUFFER_ADVERTISE_DENOMINATOR = 5;
 
@@ -75,6 +80,7 @@ PlayerRole::Impl::Impl(PlayerRoleConfig config, SendspinClient* client,
       sync_task(std::make_unique<SyncTask>()) {}
 
 PlayerRole::Impl::~Impl() {
+    this->stop_audio_ingress_worker();
     // Stop the sync task thread first, before destroying other members.
     // External callbacks (e.g., PortAudio) may still call notify_audio_played() on another thread,
     // so the sync task must be stopped while it's still valid.
@@ -185,6 +191,10 @@ bool PlayerRole::Impl::start() {
             SS_LOGE(TAG, "Failed to start sync task thread");
             return false;
         }
+        if (!this->start_audio_ingress_worker()) {
+            SS_LOGE(TAG, "Failed to start audio ingress worker");
+            return false;
+        }
     }
     return true;
 }
@@ -234,9 +244,9 @@ SS_HOT void PlayerRole::Impl::handle_binary(const uint8_t* data, size_t len) con
         return;
     }
     int64_t timestamp = be64_to_host(data);
-    if (!this->send_audio_chunk(data + BINARY_TIMESTAMP_SIZE, len - BINARY_TIMESTAMP_SIZE,
-                                timestamp, CHUNK_TYPE_ENCODED_AUDIO, 0)) {
-        SS_LOGW(TAG, "Failed to send audio chunk");
+    if (!this->enqueue_ingress_audio_chunk(data + BINARY_TIMESTAMP_SIZE,
+                                           len - BINARY_TIMESTAMP_SIZE, timestamp)) {
+        SS_LOGW(TAG, "Failed to enqueue audio ingress chunk");
     }
 }
 
@@ -314,17 +324,11 @@ void PlayerRole::Impl::handle_stream_end() const {
 
 void PlayerRole::Impl::handle_stream_clear() const {
     // stream/clear is a seek within the active stream: the server flushes our buffered audio and
-    // immediately resumes sending new audio with the same codec/params (no new stream/start). Tell
-    // the sync task to discard buffered audio, then enqueue a marker so it knows exactly where the
-    // discarded (pre-seek) audio ends and the new audio begins. The flag is set before the marker
-    // so the sync task starts draining (freeing ring-buffer space) before we write the marker.
+    // immediately resumes sending new audio with the same codec/params (no new stream/start). Put
+    // its marker in the ingress queue so it cannot overtake audio the worker is still forwarding.
+    // The worker signals the sync task immediately before forwarding that marker.
     // No listener callback: a seek is not a stream lifecycle event for the consumer.
-    this->sync_task->signal_stream_clear();
-    if (!this->sync_task->write_audio_chunk(nullptr, 0, 0, CHUNK_TYPE_STREAM_CLEAR_MARKER,
-                                            HEADER_SEND_TIMEOUT_MS)) {
-        // The marker couldn't be enqueued (ring buffer full). The sync task will still drain to
-        // empty and apply the clear, but the pre-seek/post-seek boundary is lost, so new audio
-        // may be discarded along with the old.
+    if (!this->enqueue_ingress_chunk(nullptr, 0, 0, CHUNK_TYPE_STREAM_CLEAR_MARKER)) {
         SS_LOGW(TAG, "Failed to enqueue stream/clear marker; seek boundary may be imprecise");
     }
 }
@@ -333,6 +337,13 @@ void PlayerRole::Impl::handle_server_command(const ServerCommandMessage& cmd) co
     if (!cmd.player.has_value()) {
         SS_LOGV(TAG, "Server command has no player commands");
         return;
+    }
+    if (cmd.player->volume.has_value()) {
+        const int64_t received_at_us = platform_time_us();
+        this->last_volume_command_received_us.store(received_at_us, std::memory_order_relaxed);
+        if (this->listener) {
+            this->listener->on_volume_command_received(cmd.player->volume.value(), received_at_us);
+        }
     }
     this->event_state->command_slot.merge(
         [](ServerCommandMessage& current, ServerCommandMessage&& delta) {
@@ -382,7 +393,9 @@ void PlayerRole::Impl::drain_events() {
             if (player_cmd.volume.has_value()) {
                 this->update_volume(player_cmd.volume.value());
                 if (this->listener) {
-                    this->listener->on_volume_changed(player_cmd.volume.value());
+                    this->listener->on_volume_changed_with_timestamp(
+                        player_cmd.volume.value(),
+                        this->last_volume_command_received_us.load(std::memory_order_relaxed));
                 }
             }
 
@@ -541,6 +554,71 @@ bool PlayerRole::Impl::send_audio_chunk(const uint8_t* data, size_t data_size, i
 
     return this->sync_task->write_audio_chunk(data, data_size, timestamp,
                                               static_cast<ChunkType>(chunk_type), timeout_ms);
+}
+
+bool PlayerRole::Impl::enqueue_ingress_audio_chunk(const uint8_t* data, size_t data_size,
+                                                    int64_t timestamp) const {
+    if (data == nullptr || data_size == 0) {
+        return false;
+    }
+
+    return this->enqueue_ingress_chunk(data, data_size, timestamp, CHUNK_TYPE_ENCODED_AUDIO);
+}
+
+bool PlayerRole::Impl::enqueue_ingress_chunk(const uint8_t* data, size_t data_size,
+                                              int64_t timestamp, ChunkType chunk_type) const {
+    if (this->audio_ingress_ring_buffer == nullptr) {
+        return false;
+    }
+
+    return this->audio_ingress_ring_buffer->write_chunk(data, data_size, timestamp, chunk_type, 0);
+}
+
+bool PlayerRole::Impl::start_audio_ingress_worker() {
+    if (this->audio_ingress_thread.joinable()) {
+        return true;
+    }
+
+    this->audio_ingress_ring_buffer =
+        SendspinAudioRingBuffer::create(this->config.audio_ingress_buffer_capacity);
+    if (this->audio_ingress_ring_buffer == nullptr) {
+        return false;
+    }
+
+    this->audio_ingress_worker_running.store(true, std::memory_order_release);
+    const unsigned priority = this->config.priority > 0 ? this->config.priority - 1U : 0U;
+    platform_configure_thread("SsIngress", AUDIO_INGRESS_TASK_STACK_SIZE,
+                              static_cast<int>(priority), false);
+    this->audio_ingress_thread = std::thread(audio_ingress_thread_entry, this);
+    return true;
+}
+
+void PlayerRole::Impl::stop_audio_ingress_worker() {
+    this->audio_ingress_worker_running.store(false, std::memory_order_release);
+    if (this->audio_ingress_thread.joinable()) {
+        this->audio_ingress_thread.join();
+    }
+    this->audio_ingress_ring_buffer.reset();
+}
+
+void PlayerRole::Impl::audio_ingress_thread_entry(Impl* player_impl) {
+    while (player_impl->audio_ingress_worker_running.load(std::memory_order_acquire)) {
+        auto* entry = player_impl->audio_ingress_ring_buffer->receive_chunk(
+            AUDIO_INGRESS_RECEIVE_TIMEOUT_MS);
+        if (entry == nullptr) {
+            continue;
+        }
+
+        if (entry->chunk_type == CHUNK_TYPE_STREAM_CLEAR_MARKER) {
+            player_impl->sync_task->signal_stream_clear();
+        }
+        while (player_impl->audio_ingress_worker_running.load(std::memory_order_acquire) &&
+               !player_impl->sync_task->write_audio_chunk(
+                   entry->data(), entry->data_size, entry->timestamp, entry->chunk_type,
+                   AUDIO_CHUNK_SEND_TIMEOUT_MS)) {
+        }
+        player_impl->audio_ingress_ring_buffer->return_chunk(entry);
+    }
 }
 
 void PlayerRole::Impl::enqueue_state_update(SendspinClientState state) const {

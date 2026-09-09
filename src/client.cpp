@@ -164,25 +164,6 @@ void SendspinClient::loop() {
     // Process connection lifecycle events (close, disconnect, hello, handoff, retry)
     this->connection_manager_->loop();
 
-    // Handle time synchronization for the active connection via burst strategy
-    auto* conn = this->connection_manager_->current();
-    if (conn != nullptr) {
-        auto result = this->time_burst_->loop(conn);
-
-        if (result.sent && !this->high_performance_held_for_time_) {
-            this->acquire_high_performance();
-            this->high_performance_held_for_time_ = true;
-        }
-        if (result.burst_completed && this->high_performance_held_for_time_) {
-            this->release_high_performance();
-            this->high_performance_held_for_time_ = false;
-        }
-        if (result.burst_completed && this->listener_ && conn->get_time_filter()) {
-            this->listener_->on_time_sync_updated(
-                static_cast<float>(conn->get_time_filter()->get_error()));
-        }
-    }
-
     // Process deferred events: all state mutations and user callbacks happen here, on the main
     // loop thread, to avoid cross-thread data races. Two poll() snapshots gate the work below:
     // inbox_bits (here) gates only the event-ring drain immediately following it; slot_bits
@@ -357,6 +338,26 @@ void SendspinClient::loop() {
         this->artwork_->impl_->drain_events();
     }
 #endif
+
+    // Run clock synchronization after deferred events so user-visible commands are not held
+    // behind an outbound time frame on transports whose sends are synchronous.
+    auto* conn = this->connection_manager_->current();
+    if (conn != nullptr) {
+        auto result = this->time_burst_->loop(conn);
+
+        if (result.sent && !this->high_performance_held_for_time_) {
+            this->acquire_high_performance();
+            this->high_performance_held_for_time_ = true;
+        }
+        if (result.burst_completed && this->high_performance_held_for_time_) {
+            this->release_high_performance();
+            this->high_performance_held_for_time_ = false;
+        }
+        if (result.burst_completed && this->listener_ && conn->get_time_filter()) {
+            this->listener_->on_time_sync_updated(
+                static_cast<float>(conn->get_time_filter()->get_error()));
+        }
+    }
 
     // --- Group update events ---
     if (slot_bits & INBOX_TOPIC_GROUP) {

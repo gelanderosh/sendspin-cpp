@@ -23,6 +23,7 @@
 
 #include <atomic>
 #include <memory>
+#include <thread>
 #include <vector>
 
 namespace sendspin {
@@ -101,6 +102,12 @@ struct PlayerRole::Impl {
 
     bool send_audio_chunk(const uint8_t* data, size_t data_size, int64_t timestamp,
                           uint8_t chunk_type, uint32_t timeout_ms) const;
+    bool enqueue_ingress_chunk(const uint8_t* data, size_t data_size, int64_t timestamp,
+                               ChunkType chunk_type) const;
+    bool enqueue_ingress_audio_chunk(const uint8_t* data, size_t data_size, int64_t timestamp) const;
+    bool start_audio_ingress_worker();
+    void stop_audio_ingress_worker();
+    static void audio_ingress_thread_entry(Impl* player_impl);
     void enqueue_state_update(SendspinClientState state) const;
     void enqueue_stream_event(PlayerStreamCallbackType event) const;
     void load_static_delay();
@@ -122,6 +129,7 @@ struct PlayerRole::Impl {
     Inbox* inbox{nullptr};
     PlayerRoleListener* listener{nullptr};
     SendspinPersistenceProvider* persistence;
+    std::unique_ptr<SendspinAudioRingBuffer> audio_ingress_ring_buffer;
     std::unique_ptr<SyncTask> sync_task;
 
     // 32-bit fields
@@ -132,6 +140,10 @@ struct PlayerRole::Impl {
 
     // 16-bit fields
     std::atomic<uint16_t> static_delay_ms{0};
+    std::atomic<bool> audio_ingress_worker_running{false};
+    mutable std::atomic<int64_t> last_volume_command_received_us{0};
+
+    std::thread audio_ingress_thread;
 
     // 8-bit fields
     bool high_performance_requested_for_playback{false};

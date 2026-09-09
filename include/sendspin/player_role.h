@@ -100,6 +100,15 @@ public:
     /// @brief Called when the volume is changed by the server. Fires on the main loop thread
     virtual void on_volume_changed(uint8_t /*volume*/) {}
 
+    /// @brief Called when a server volume command is applied, with its receive timestamp.
+    virtual void on_volume_changed_with_timestamp(uint8_t volume, int64_t /*received_at_us*/) {
+        on_volume_changed(volume);
+    }
+
+    /// @brief Called on the network thread when a server volume command is received.
+    /// Implementations must not block and must be thread-safe.
+    virtual void on_volume_command_received(uint8_t /*volume*/, int64_t /*received_at_us*/) {}
+
     /// @brief Called when the mute state is changed by the server. Fires on the main loop thread
     virtual void on_mute_changed(bool /*muted*/) {}
 

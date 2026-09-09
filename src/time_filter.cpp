@@ -21,6 +21,8 @@
 
 namespace sendspin {
 
+static constexpr double MAX_OFFSET_ADJUSTMENT_US = 2000.0;
+
 // ============================================================================
 // Lifecycle
 // ============================================================================
@@ -35,7 +37,8 @@ SendspinTimeFilter::SendspinTimeFilter(const Config& config)
       forget_variance_factor(config.forget_factor * config.forget_factor),
       max_error_scale(config.max_error_scale),
       process_variance(config.process_std_dev * config.process_std_dev),
-      min_samples_for_forgetting(config.min_samples) {}
+    min_samples_for_forgetting(config.min_samples),
+    min_samples_for_drift(config.min_samples_for_drift) {}
 
 // ============================================================================
 // Core API
@@ -68,16 +71,23 @@ void SendspinTimeFilter::update(int64_t measurement, int64_t max_error, int64_t 
         return;
     }
 
-    // Second measurement: Initial drift estimation from finite differences
+    // Second measurement: fuse it with the startup baseline. Replacing the first offset outright
+    // makes a delayed or asymmetric second time response jump the playback clock by many
+    // milliseconds. Drift remains disabled until enough samples establish it reliably.
     if (this->count_ == 1) {
         ++this->count_;
 
-        this->drift_ = (measurement - this->offset_) / dt;
-        this->offset_ = measurement;
+        const double total_variance = this->offset_covariance_ + measurement_variance;
+        this->offset_ = (this->offset_ * measurement_variance +
+                         static_cast<double>(measurement) * this->offset_covariance_) /
+                        total_variance;
+        this->offset_covariance_ =
+            (this->offset_covariance_ * measurement_variance) / total_variance;
+        this->drift_ = 0.0;
+        this->offset_drift_covariance_ = 0.0;
 
-        // Drift variance estimated from propagation of offset uncertainties
+        // Keep the uncertainty for future drift estimation without applying a two-sample slope.
         this->drift_covariance_ = (this->offset_covariance_ + measurement_variance) / dt_squared;
-        this->offset_covariance_ = measurement_variance;
 
         return;
     }
@@ -91,20 +101,37 @@ void SendspinTimeFilter::update(int64_t measurement, int64_t max_error, int64_t 
 
     // Process noise for both offset and drift (full random walk model)
     // We assume clock jitter (offset noise) and wander (drift noise) are independent processes
-    const double drift_process_variance_dt = dt * this->drift_process_variance;
-    double new_drift_covariance = this->drift_covariance_ + drift_process_variance_dt;
+        const bool estimate_drift = this->count_ >= this->min_samples_for_drift;
+        const double drift_process_variance_dt = dt * this->drift_process_variance;
+        double new_drift_covariance = estimate_drift
+                              ? this->drift_covariance_ + drift_process_variance_dt
+                              : 0.0;
 
-    double new_offset_drift_covariance =
-        this->offset_drift_covariance_ + this->drift_covariance_ * dt;
+        double new_offset_drift_covariance = estimate_drift
+                                   ? this->offset_drift_covariance_ +
+                                       this->drift_covariance_ * dt
+                                   : 0.0;
 
-    const double offset_process_variance = dt * this->process_variance;
-    double new_offset_covariance = this->offset_covariance_ +
+        const double offset_process_variance = dt * this->process_variance;
+        double new_offset_covariance = estimate_drift
+                               ? this->offset_covariance_ +
                                    2 * this->offset_drift_covariance_ * dt +
-                                   this->drift_covariance_ * dt_squared + offset_process_variance;
+                                   this->drift_covariance_ * dt_squared +
+                                   offset_process_variance
+                               : this->offset_covariance_ + offset_process_variance;
 
     /*** Innovation and Adaptive Forgetting ***/
     const double residual = measurement - offset;  // Innovation: y_k = z_k - H * x_k|k-1
     const double max_residual_cutoff = max_error * this->adaptive_forgetting_cutoff;
+
+    const double innovation_variance = new_offset_covariance + measurement_variance;
+    const double prospective_offset_adjustment =
+        (new_offset_covariance / innovation_variance) * residual;
+    if (std::abs(prospective_offset_adjustment) > MAX_OFFSET_ADJUSTMENT_US) {
+        // A large post-startup NTP offset step is normally asymmetric transport delay, not a
+        // clock change. Applying it would make live audio hard-resync audibly.
+        return;
+    }
 
     if (this->count_ < this->min_samples_for_forgetting) {
         // Build sufficient history before enabling adaptive forgetting
@@ -119,7 +146,7 @@ void SendspinTimeFilter::update(int64_t measurement, int64_t max_error, int64_t 
 
     /*** Kalman Update Step ***/
     // Innovation covariance: S = H * P * H^T + R, where H = [1, 0]
-    const double uncertainty = 1.0 / (new_offset_covariance + measurement_variance);
+    const double uncertainty = 1.0 / innovation_variance;
 
     // Kalman gain: K = P * H^T * S^(-1)
     const double offset_gain = new_offset_covariance * uncertainty;
@@ -127,7 +154,9 @@ void SendspinTimeFilter::update(int64_t measurement, int64_t max_error, int64_t 
 
     // State update: x_k|k = x_k|k-1 + K * y_k
     this->offset_ = offset + offset_gain * residual;
-    this->drift_ += drift_gain * residual;
+    if (estimate_drift) {
+        this->drift_ += drift_gain * residual;
+    }
 
     // Covariance update: P_k|k = (I - K*H) * P_k|k-1
     // Using simplified form for numerical stability
@@ -140,6 +169,7 @@ void SendspinTimeFilter::update(int64_t measurement, int64_t max_error, int64_t 
     // Only apply drift compensation if statistically significant (SNR check)
     const double drift_squared = this->drift_ * this->drift_;
     this->use_drift_ =
+        this->count_ >= this->min_samples_for_drift &&
         drift_squared > this->drift_significance_threshold_squared * this->drift_covariance_;
 }
 
@@ -199,6 +229,11 @@ int64_t SendspinTimeFilter::get_error() const {
 bool SendspinTimeFilter::has_update() const {
     std::lock_guard<std::mutex> lock(this->state_mutex_);
     return this->count_ >= 1;
+}
+
+bool SendspinTimeFilter::has_minimum_samples(uint8_t minimum_samples) const {
+    std::lock_guard<std::mutex> lock(this->state_mutex_);
+    return this->count_ >= minimum_samples;
 }
 
 }  // namespace sendspin

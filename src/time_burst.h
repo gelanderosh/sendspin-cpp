@@ -111,6 +111,8 @@ protected:
     uint8_t burst_index_{8};  // starts "complete" so first loop triggers a burst
     // Flag set by on_time_response() when burst completes, consumed by loop()
     bool pending_burst_completed_{false};
+    bool initial_burst_{true};
+    uint8_t initial_valid_responses_{0};
 };
 
 }  // namespace sendspin

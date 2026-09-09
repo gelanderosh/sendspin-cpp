@@ -126,8 +126,12 @@ struct AudioSupportedFormatObject {
 /// @brief Configuration for the player role
 struct PlayerRoleConfig {
     static constexpr size_t DEFAULT_AUDIO_BUFFER_CAPACITY = 1000000U;  ///< ~1MB default buffer
+    static constexpr size_t DEFAULT_AUDIO_INGRESS_BUFFER_CAPACITY = 1000000U;
     std::vector<AudioSupportedFormatObject> audio_formats{};
     size_t audio_buffer_capacity{DEFAULT_AUDIO_BUFFER_CAPACITY};
+    /// Queue for WebSocket audio ingress. The receive task writes here without blocking while a
+    /// dedicated worker forwards data to the decode ring under backpressure.
+    size_t audio_ingress_buffer_capacity{DEFAULT_AUDIO_INGRESS_BUFFER_CAPACITY};
     int32_t fixed_delay_us{0};
     uint16_t initial_static_delay_ms{0};
 

@@ -238,13 +238,13 @@ public:
         return this->time_filter_.get();
     }
 
-    /// @brief Returns true if the time filter has received at least one measurement
-    /// @return True if time synchronization has started, false otherwise.
+    /// @brief Returns true once the time filter has a two-sample startup baseline.
+    /// @return True if audio timestamps can be converted reliably, false otherwise.
     bool is_time_synced() const {
         if (this->time_filter_ == nullptr) {
             return false;
         }
-        return this->time_filter_->has_update();
+        return this->time_filter_->has_minimum_samples(2);
     }
 
     /// @brief Initializes the time filter with Kalman parameters

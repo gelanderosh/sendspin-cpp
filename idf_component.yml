@@ -1,33 +1,34 @@
-## IDF Component Manager Manifest File
-name: "sendspin-cpp"
 dependencies:
-  idf: ">=5.5"
-  espressif/esp_websocket_client: ">=1.0.0"
-  bblanchon/arduinojson: ">=7.4.2"
+  bblanchon/arduinojson: '>=7.4.2'
   esphome/micro-flac:
-    version: ">=0.1.1"
     rules:
-      - if: "$CONFIG{SENDSPIN_ENABLE_PLAYER} == True"
+    - if: $CONFIG{SENDSPIN_ENABLE_PLAYER} == True
+    version: '>=0.1.1'
   esphome/micro-opus:
-    version: ">=0.3.5"
     rules:
-      - if: "$CONFIG{SENDSPIN_ENABLE_PLAYER} == True"
-description: "Sendspin synchronized audio streaming client for ESP32"
-license: "Apache-2.0"
-maintainers:
-  - Kevin Ahrendt <kevin.ahrendt@openhomefoundation.org>
-version: "0.0.0"
-url: https://github.com/sendspin/sendspin-cpp
-repository: https://github.com/sendspin/sendspin-cpp.git
+    - if: $CONFIG{SENDSPIN_ENABLE_PLAYER} == True
+    version: '>=0.3.5'
+  espressif/esp_websocket_client: '>=1.0.0'
+  idf: '>=5.5'
+description: Sendspin synchronized audio streaming client for ESP32
 files:
   exclude:
-    - ".claude/**"
-    - ".github/**"
-    - ".clang-*"
-    - ".clangd"
-    - ".markdownlint.yaml"
-    - ".pre-commit-config.yaml"
-    - "examples/**"
-    - "test/**"
-    - "script/**"
-    - "CLAUDE.md"
+  - .claude/**
+  - .github/**
+  - .clang-*
+  - .clangd
+  - .markdownlint.yaml
+  - .pre-commit-config.yaml
+  - examples/**
+  - test/**
+  - script/**
+  - CLAUDE.md
+license: Apache-2.0
+maintainers:
+- Kevin Ahrendt <kevin.ahrendt@openhomefoundation.org>
+repository: git://github.com/Sendspin/sendspin-cpp.git
+repository_info:
+  commit_sha: 30514d5102c269a0c7fa6a13932d6bf7f2ae1abc
+  path: .
+url: https://github.com/sendspin/sendspin-cpp
+version: 0.7.2

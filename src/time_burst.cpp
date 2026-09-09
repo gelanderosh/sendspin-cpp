@@ -110,12 +110,30 @@ bool SendspinTimeBurst::on_time_response(SendspinConnection* conn, int64_t offse
     conn->set_pending_time_message(false);
     this->burst_index_++;
 
+    // Establish a two-sample baseline before opening playback. The second reply is normally one
+    // round trip later, but avoids starting audio on a one-off asymmetric-delay measurement.
+    if (this->initial_burst_ && max_error > 0) {
+        auto* time_filter = conn->get_time_filter();
+        if (time_filter != nullptr) {
+            time_filter->update(offset, max_error, timestamp);
+        }
+        ++this->initial_valid_responses_;
+        if (this->initial_valid_responses_ >= 2) {
+            this->burst_index_ = this->burst_size_;
+            this->last_burst_complete_time_ = platform_time_us() / US_PER_MS;
+            this->pending_burst_completed_ = true;
+            this->initial_burst_ = false;
+            return true;
+        }
+    }
+
     // Check if burst is complete
     if (this->burst_index_ >= this->burst_size_) {
         auto* time_filter = conn->get_time_filter();
         if (time_filter != nullptr && this->best_max_error_ < std::numeric_limits<int64_t>::max()) {
             time_filter->update(this->best_offset_, this->best_max_error_, this->best_timestamp_);
             SS_LOGV(TAG, "Burst complete, best max_error: %" PRId64 " us", this->best_max_error_);
+            this->initial_burst_ = false;
         }
         this->last_burst_complete_time_ = platform_time_us() / US_PER_MS;
         this->pending_burst_completed_ = true;
@@ -139,9 +157,12 @@ void SendspinTimeBurst::configure(uint8_t burst_size, int64_t burst_interval_ms,
 
 void SendspinTimeBurst::reset() {
     this->burst_index_ = this->burst_size_;  // "complete" state; next loop will wait for interval
-    this->last_burst_complete_time_ = 0;
+    this->last_burst_complete_time_ =
+        (platform_time_us() / US_PER_MS) - this->burst_interval_ms_;
     this->current_message_sent_time_ = 0;
     this->pending_burst_completed_ = false;
+    this->initial_burst_ = true;
+    this->initial_valid_responses_ = 0;
     this->best_max_error_ = std::numeric_limits<int64_t>::max();
     this->best_offset_ = 0;
     this->best_timestamp_ = 0;
