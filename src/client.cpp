@@ -509,9 +509,10 @@ void SendspinClient::publish_state() {
     this->publish_client_state(this->connection_manager_->current());
 }
 
-void SendspinClient::send_text(const std::string& text) {
+void SendspinClient::send_text(const std::string& text, std::string_view required_role) {
     auto* conn = this->connection_manager_->current();
-    if (conn != nullptr && conn->is_connected()) {
+    if (conn != nullptr && conn->is_connected() &&
+        (required_role.empty() || conn->is_protocol_v1_role_active(required_role))) {
         conn->send_protocol_json(text);
     }
 }
@@ -689,19 +690,22 @@ void SendspinClient::process_json_message(SendspinConnection* conn, const char* 
             }
 
 #ifdef SENDSPIN_ENABLE_PLAYER
-            if (this->player_ && stream_msg.player.has_value()) {
+            if (this->player_ && stream_msg.player.has_value() &&
+                conn->is_protocol_v1_role_active("player@v1")) {
                 this->player_->impl_->handle_stream_start(stream_msg.player.value());
             }
 #endif
 
 #ifdef SENDSPIN_ENABLE_ARTWORK
-            if (this->artwork_ && stream_msg.artwork.has_value()) {
+            if (this->artwork_ && stream_msg.artwork.has_value() &&
+                conn->is_protocol_v1_role_active("artwork@v1")) {
                 this->artwork_->impl_->handle_stream_start(stream_msg.artwork.value());
             }
 #endif
 
 #ifdef SENDSPIN_ENABLE_VISUALIZER
-            if (this->visualizer_ && stream_msg.visualizer.has_value()) {
+            if (this->visualizer_ && stream_msg.visualizer.has_value() &&
+                conn->is_protocol_v1_role_active("visualizer@v1")) {
                 this->visualizer_->impl_->handle_stream_start(stream_msg.visualizer.value());
             }
 #endif
@@ -730,19 +734,19 @@ void SendspinClient::process_json_message(SendspinConnection* conn, const char* 
                         end_artwork, end_visualizer);
 
 #ifdef SENDSPIN_ENABLE_PLAYER
-                if (this->player_ && end_player) {
+                if (this->player_ && end_player && conn->is_protocol_v1_role_active("player@v1")) {
                     this->player_->impl_->handle_stream_end();
                 }
 #endif
 
 #ifdef SENDSPIN_ENABLE_ARTWORK
-                if (this->artwork_ && end_artwork) {
+                if (this->artwork_ && end_artwork && conn->is_protocol_v1_role_active("artwork@v1")) {
                     this->artwork_->impl_->handle_stream_end();
                 }
 #endif
 
 #ifdef SENDSPIN_ENABLE_VISUALIZER
-                if (this->visualizer_ && end_visualizer) {
+                if (this->visualizer_ && end_visualizer && conn->is_protocol_v1_role_active("visualizer@v1")) {
                     this->visualizer_->impl_->handle_stream_end();
                 }
 #endif
@@ -772,19 +776,19 @@ void SendspinClient::process_json_message(SendspinConnection* conn, const char* 
                         clear_artwork, clear_visualizer);
 
 #ifdef SENDSPIN_ENABLE_PLAYER
-                if (this->player_ && clear_player) {
+                if (this->player_ && clear_player && conn->is_protocol_v1_role_active("player@v1")) {
                     this->player_->impl_->handle_stream_clear();
                 }
 #endif
 
 #ifdef SENDSPIN_ENABLE_ARTWORK
-                if (this->artwork_ && clear_artwork) {
+                if (this->artwork_ && clear_artwork && conn->is_protocol_v1_role_active("artwork@v1")) {
                     this->artwork_->impl_->handle_stream_clear();
                 }
 #endif
 
 #ifdef SENDSPIN_ENABLE_VISUALIZER
-                if (this->visualizer_ && clear_visualizer) {
+                if (this->visualizer_ && clear_visualizer && conn->is_protocol_v1_role_active("visualizer@v1")) {
                     this->visualizer_->impl_->handle_stream_clear();
                 }
 #endif
@@ -839,7 +843,7 @@ void SendspinClient::process_json_message(SendspinConnection* conn, const char* 
             // is small on ESP-IDF. Scoping the sections lets the compiler reuse the same slots, and
             // a section is only parsed at all when its role is present.
 #ifdef SENDSPIN_ENABLE_CONTROLLER
-            if (this->controller_ != nullptr) {
+            if (this->controller_ != nullptr && conn->is_protocol_v1_role_active("controller@v1")) {
                 ServerStateControllerObject controller_state;
                 if (process_server_state_controller(root, &controller_state)) {
                     this->controller_->impl_->handle_server_state(std::move(controller_state));
@@ -848,7 +852,7 @@ void SendspinClient::process_json_message(SendspinConnection* conn, const char* 
 #endif
 
 #ifdef SENDSPIN_ENABLE_METADATA
-            if (this->metadata_ != nullptr) {
+            if (this->metadata_ != nullptr && conn->is_protocol_v1_role_active("metadata@v1")) {
                 ServerMetadataStateDelta metadata_delta;
                 if (process_server_state_metadata(root, &metadata_delta)) {
                     this->metadata_->impl_->handle_server_state(std::move(metadata_delta));
@@ -857,7 +861,7 @@ void SendspinClient::process_json_message(SendspinConnection* conn, const char* 
 #endif
 
 #ifdef SENDSPIN_ENABLE_COLOR
-            if (this->color_ != nullptr) {
+            if (this->color_ != nullptr && conn->is_protocol_v1_role_active("color@v1")) {
                 ServerColorStateDelta color_delta;
                 if (process_server_state_color(root, &color_delta)) {
                     this->color_->impl_->handle_server_state(color_delta);
@@ -868,7 +872,7 @@ void SendspinClient::process_json_message(SendspinConnection* conn, const char* 
         }
         case SendspinServerToClientMessageType::SERVER_COMMAND: {
 #ifdef SENDSPIN_ENABLE_PLAYER
-            if (this->player_) {
+            if (this->player_ && conn->is_protocol_v1_role_active("player@v1")) {
                 ServerCommandMessage cmd_msg;
                 if (process_server_command_message(root, &cmd_msg)) {
                     this->player_->impl_->handle_server_command(cmd_msg);
@@ -901,8 +905,9 @@ void SendspinClient::process_json_message(SendspinConnection* conn, const char* 
     }
 }
 
-SS_HOT void SendspinClient::process_binary_message(const uint8_t* payload, size_t len) {
-    if (len < 2) {
+SS_HOT void SendspinClient::process_binary_message(SendspinConnection* conn, const uint8_t* payload,
+                                                    size_t len) {
+    if (conn == nullptr || len < 2) {
         return;
     }
 
@@ -919,7 +924,7 @@ SS_HOT void SendspinClient::process_binary_message(const uint8_t* payload, size_
     if (binary_type >= SENDSPIN_BINARY_VISUALIZER_FIRST &&
         binary_type <= SENDSPIN_BINARY_VISUALIZER_LAST) {
 #ifdef SENDSPIN_ENABLE_VISUALIZER
-        if (this->visualizer_) {
+        if (this->visualizer_ && conn->is_protocol_v1_role_active("visualizer@v1")) {
             this->visualizer_->impl_->handle_binary(binary_type, data, data_len);
         }
 #endif
@@ -929,7 +934,7 @@ SS_HOT void SendspinClient::process_binary_message(const uint8_t* payload, size_
     switch (role) {
         case SENDSPIN_ROLE_PLAYER: {
 #ifdef SENDSPIN_ENABLE_PLAYER
-            if (this->player_) {
+            if (this->player_ && conn->is_protocol_v1_role_active("player@v1")) {
                 if (slot == 0) {
                     this->player_->impl_->handle_binary(data, data_len);
                 } else {
@@ -941,7 +946,7 @@ SS_HOT void SendspinClient::process_binary_message(const uint8_t* payload, size_
         }
         case SENDSPIN_ROLE_ARTWORK: {
 #ifdef SENDSPIN_ENABLE_ARTWORK
-            if (this->artwork_) {
+            if (this->artwork_ && conn->is_protocol_v1_role_active("artwork@v1")) {
                 this->artwork_->impl_->handle_binary(slot, data, data_len);
             }
 #endif
@@ -967,7 +972,7 @@ void SendspinClient::publish_client_state(SendspinConnection* conn) {
     state_msg.available = this->state_ == SendspinClientState::SYNCHRONIZED;
 
 #ifdef SENDSPIN_ENABLE_PLAYER
-    if (this->player_) {
+    if (this->player_ && conn->is_protocol_v1_role_active("player@v1")) {
         this->player_->impl_->build_state_fields(state_msg);
     }
 #endif

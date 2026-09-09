@@ -517,8 +517,8 @@ void ConnectionManager::setup_connection_callbacks(SendspinConnection* conn) {
                                       int64_t timestamp) {
         this->client_->process_json_message(c, data, len, timestamp);
     };
-    conn->on_binary_message_cb = [this](SendspinConnection* /*c*/, uint8_t* payload, size_t len) {
-        this->client_->process_binary_message(payload, len);
+    conn->on_binary_message_cb = [this](SendspinConnection* c, uint8_t* payload, size_t len) {
+        this->client_->process_binary_message(c, payload, len);
     };
 }
 

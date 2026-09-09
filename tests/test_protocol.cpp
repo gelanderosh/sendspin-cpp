@@ -17,6 +17,7 @@
 // malformed-input handling) where a bug is silent rather than a crash, plus a hand-rolled int64
 // formatter that we can check against snprintf as a free correctness oracle.
 
+#include "connection.h"
 #include "protocol_messages.h"
 #include <ArduinoJson.h>
 #include <gtest/gtest.h>
@@ -40,6 +41,20 @@ bool parse(const std::string& json, JsonDocument& doc, JsonObject& root) {
     root = doc.as<JsonObject>();
     return true;
 }
+
+class ActivationTestConnection final : public SendspinConnection {
+public:
+    void start() override {}
+    void loop() override {}
+    void disconnect(SendspinGoodbyeReason, std::function<void()>) override {}
+    bool is_connected() const override { return true; }
+    SsErr send_text_message(const std::string&, SendCompleteCallback, bool) override { return SsErr::OK; }
+    SsErr send_binary_message(const uint8_t*, size_t, SendCompleteCallback) override { return SsErr::OK; }
+    bool send_time_message() override { return true; }
+
+protected:
+    void abort_transport() override {}
+};
 
 }  // namespace
 
@@ -420,6 +435,27 @@ TEST(Protocol, ServerActivateDistinguishesAbsentAndInvalidRoles) {
         ServerActivateMessage msg;
         EXPECT_FALSE(process_server_activate_message(root, &msg)) << json;
     }
+}
+
+TEST(Protocol, ServerActivatePersistsOmittedRolesAfterFirstActivation) {
+    ActivationTestConnection connection;
+    SendspinProtocolV1::Key identity{};
+    std::string client_id;
+    ASSERT_TRUE(SendspinProtocolV1::derive_client_id(identity, &client_id));
+    std::string client_init;
+    ASSERT_TRUE(connection.begin_protocol_v1(identity, client_id, nullptr, &client_init));
+
+    connection.apply_protocol_v1_activation(std::vector<std::string>{"player@v1"});
+    EXPECT_TRUE(connection.is_protocol_v1_role_active("player@v1"));
+    EXPECT_FALSE(connection.is_protocol_v1_role_active("artwork@v1"));
+
+    connection.apply_protocol_v1_activation(std::nullopt);
+    EXPECT_TRUE(connection.is_protocol_v1_role_active("player@v1"));
+
+    ActivationTestConnection initially_empty;
+    ASSERT_TRUE(initially_empty.begin_protocol_v1(identity, client_id, nullptr, &client_init));
+    initially_empty.apply_protocol_v1_activation(std::nullopt);
+    EXPECT_FALSE(initially_empty.is_protocol_v1_role_active("player@v1"));
 }
 
 // If a visualizer stream advertises SPECTRUM in its `types`, a valid spectrum config with a non-zero

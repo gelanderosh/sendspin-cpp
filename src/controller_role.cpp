@@ -63,7 +63,7 @@ void ControllerRole::Impl::attach_inbox(Inbox& inbox) {
 
 void ControllerRole::Impl::send_command(const ClientCommandControllerObject& cmd) const {
     std::string command_message = format_client_command_message(cmd);
-    this->client->send_text(command_message);
+    this->client->send_text(command_message, "controller@v1");
 }
 
 void ControllerRole::Impl::build_hello_fields(ClientHelloMessage& msg) {

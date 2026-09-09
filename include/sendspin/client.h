@@ -423,7 +423,7 @@ public:
 
     /// @brief Sends a text message over the active connection
     /// @param text The text message to send
-    void send_text(const std::string& text);
+    void send_text(const std::string& text, std::string_view required_role = {});
 
     /// @brief Acquires a ref-counted high-performance networking request
     void acquire_high_performance();
@@ -454,7 +454,7 @@ private:
     /// @brief Processes a binary message from a connection
     /// @param payload Pointer to the raw binary data
     /// @param len Length of the binary data in bytes
-    void process_binary_message(const uint8_t* payload, size_t len);
+    void process_binary_message(SendspinConnection* conn, const uint8_t* payload, size_t len);
 
     // ========================================
     // State publishing
