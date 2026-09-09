@@ -241,16 +241,18 @@ bool ProtocolCrypto::hmac_sha256(const uint8_t* key, size_t key_size, const uint
 bool ProtocolCrypto::hkdf_sha256(const uint8_t* salt, size_t salt_size, const uint8_t* input,
                                  size_t input_size, const uint8_t* info, size_t info_size,
                                  uint8_t* output, size_t output_size) {
-    if (input == nullptr || output == nullptr || (salt_size > 0 && salt == nullptr) ||
+    if (output == nullptr || (input_size > 0 && input == nullptr) || (salt_size > 0 && salt == nullptr) ||
         (info_size > 0 && info == nullptr) || output_size > 255 * SHA256_SIZE) {
         return false;
     }
 
     std::array<uint8_t, SHA256_SIZE> zero_salt{};
+    constexpr uint8_t empty_input{};
     Sha256Digest prk{};
     const uint8_t* extract_salt = salt_size == 0 ? zero_salt.data() : salt;
     const size_t extract_salt_size = salt_size == 0 ? zero_salt.size() : salt_size;
-    if (!hmac_sha256(extract_salt, extract_salt_size, input, input_size, &prk)) {
+    const uint8_t* extract_input = input_size == 0 ? &empty_input : input;
+    if (!hmac_sha256(extract_salt, extract_salt_size, extract_input, input_size, &prk)) {
         return false;
     }
 
