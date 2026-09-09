@@ -27,7 +27,10 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace sendspin {
 
@@ -167,6 +170,10 @@ public:
                            std::string* client_init);
 
     void set_protocol_v1_activated(bool activated) { protocol_v1_activated_ = activated; }
+
+    void apply_protocol_v1_activation(const std::optional<std::vector<std::string>>& active_roles);
+
+    bool is_protocol_v1_role_active(std::string_view role) const;
 
     bool is_protocol_v1() const { return protocol_v1_session_ != nullptr; }
 
@@ -427,6 +434,8 @@ protected:
     /// Time synchronization filter (Kalman-based).
     std::unique_ptr<SendspinTimeFilter> time_filter_;
     std::unique_ptr<ProtocolV1ResponderSession> protocol_v1_session_;
+    mutable std::mutex protocol_v1_activation_mutex_;
+    std::vector<std::string> protocol_v1_active_roles_;
 
     // 64-bit fields
 

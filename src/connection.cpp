@@ -18,6 +18,7 @@
 #include "platform/logging.h"
 #include "time_filter.h"
 
+#include <algorithm>
 #include <memory>
 
 namespace sendspin {
@@ -59,7 +60,31 @@ bool SendspinConnection::begin_protocol_v1(const SendspinProtocolV1::Key& identi
                                            std::string* client_init) {
     protocol_v1_session_ = std::make_unique<ProtocolV1ResponderSession>();
     protocol_v1_activated_ = false;
+    {
+        std::lock_guard<std::mutex> lock(protocol_v1_activation_mutex_);
+        protocol_v1_active_roles_.clear();
+    }
     return protocol_v1_session_->begin(identity_private_key, client_id, persistence, client_init);
+}
+
+void SendspinConnection::apply_protocol_v1_activation(
+    const std::optional<std::vector<std::string>>& active_roles) {
+    std::lock_guard<std::mutex> lock(protocol_v1_activation_mutex_);
+    if (active_roles.has_value()) {
+        protocol_v1_active_roles_ = *active_roles;
+    } else if (!protocol_v1_activated_.load(std::memory_order_acquire)) {
+        protocol_v1_active_roles_.clear();
+    }
+    protocol_v1_activated_.store(true, std::memory_order_release);
+}
+
+bool SendspinConnection::is_protocol_v1_role_active(std::string_view role) const {
+    if (!is_protocol_v1()) {
+        return true;
+    }
+    std::lock_guard<std::mutex> lock(protocol_v1_activation_mutex_);
+    return std::find(protocol_v1_active_roles_.begin(), protocol_v1_active_roles_.end(), role) !=
+           protocol_v1_active_roles_.end();
 }
 
 SsErr SendspinConnection::send_protocol_json(const std::string& message, SendCompleteCallback cb) {

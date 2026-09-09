@@ -17,6 +17,7 @@
 #include "protocol_messages.h"
 #include <ArduinoJson.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -370,14 +371,41 @@ bool process_server_activate_message(JsonObject root, ServerActivateMessage* act
     if (activate_msg == nullptr || !root["payload"]["activities"].is<JsonArrayConst>()) {
         return false;
     }
-    activate_msg->active_roles.clear();
-    JsonArrayConst roles = root["payload"]["active_roles"].as<JsonArrayConst>();
-    for (JsonVariantConst role : roles) {
+    activate_msg->activities.clear();
+    const JsonArrayConst activities = root["payload"]["activities"].as<JsonArrayConst>();
+    for (JsonVariantConst activity : activities) {
+        if (!activity.is<const char*>()) {
+            return false;
+        }
+        const std::string value = activity.as<const char*>();
+        if ((value != "playback" && value != "pairing" && value != "management") ||
+            std::find(activate_msg->activities.begin(), activate_msg->activities.end(), value) !=
+                activate_msg->activities.end()) {
+            return false;
+        }
+        activate_msg->activities.emplace_back(value);
+    }
+
+    if (root["payload"]["active_roles"].isUnbound()) {
+        activate_msg->active_roles.reset();
+        return true;
+    }
+    if (!root["payload"]["active_roles"].is<JsonArrayConst>()) {
+        return false;
+    }
+    std::vector<std::string> roles;
+    const JsonArrayConst active_roles = root["payload"]["active_roles"].as<JsonArrayConst>();
+    for (JsonVariantConst role : active_roles) {
         if (!role.is<const char*>()) {
             return false;
         }
-        activate_msg->active_roles.emplace_back(role.as<const char*>());
+        const std::string value = role.as<const char*>();
+        if (std::find(roles.begin(), roles.end(), value) != roles.end()) {
+            return false;
+        }
+        roles.emplace_back(value);
     }
+    activate_msg->active_roles = std::move(roles);
     return true;
 }
 

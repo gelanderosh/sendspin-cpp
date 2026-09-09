@@ -372,6 +372,56 @@ TEST(Protocol, ServerHelloRejectsInvalidVersion) {
     EXPECT_EQ(ok.version, 7);
 }
 
+TEST(Protocol, ServerActivateRequiresUniqueKnownActivities) {
+    {
+        JsonDocument doc;
+        JsonObject root;
+        ASSERT_TRUE(parse(R"({"type":"server/activate","payload":{"activities":["playback","management"]}})",
+                          doc, root));
+        ServerActivateMessage msg;
+        ASSERT_TRUE(process_server_activate_message(root, &msg));
+        EXPECT_EQ(msg.activities, (std::vector<std::string>{"playback", "management"}));
+        EXPECT_FALSE(msg.active_roles.has_value());
+    }
+
+    const char* kInvalidActivities[] = {
+        R"(["playback","playback"])", R"(["unknown"])", R"([1])",
+    };
+    for (const char* activities : kInvalidActivities) {
+        JsonDocument doc;
+        JsonObject root;
+        const std::string json = std::string(R"({"type":"server/activate","payload":{"activities":)") +
+                                 activities + "}}";
+        ASSERT_TRUE(parse(json, doc, root)) << json;
+        ServerActivateMessage msg;
+        EXPECT_FALSE(process_server_activate_message(root, &msg)) << json;
+    }
+}
+
+TEST(Protocol, ServerActivateDistinguishesAbsentAndInvalidRoles) {
+    {
+        JsonDocument doc;
+        JsonObject root;
+        ASSERT_TRUE(parse(R"({"type":"server/activate","payload":{"activities":[],"active_roles":["player@v1"]}})",
+                          doc, root));
+        ServerActivateMessage msg;
+        ASSERT_TRUE(process_server_activate_message(root, &msg));
+        ASSERT_TRUE(msg.active_roles.has_value());
+        EXPECT_EQ(msg.active_roles.value(), (std::vector<std::string>{"player@v1"}));
+    }
+
+    const char* kInvalidRoles[] = {R"("player@v1")", R"(["player@v1","player@v1"])", R"([1])"};
+    for (const char* roles : kInvalidRoles) {
+        JsonDocument doc;
+        JsonObject root;
+        const std::string json = std::string(R"({"type":"server/activate","payload":{"activities":[],"active_roles":)") +
+                                 roles + "}}";
+        ASSERT_TRUE(parse(json, doc, root)) << json;
+        ServerActivateMessage msg;
+        EXPECT_FALSE(process_server_activate_message(root, &msg)) << json;
+    }
+}
+
 // If a visualizer stream advertises SPECTRUM in its `types`, a valid spectrum config with a non-zero
 // bin count must be present. Otherwise the expected size of binary spectrum messages would be
 // indeterminate, so the visualizer object is dropped -- but only the visualizer object: the message

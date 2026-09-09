@@ -641,7 +641,8 @@ struct ServerHelloMessage {
 };
 
 struct ServerActivateMessage {
-    std::vector<std::string> active_roles;
+    std::vector<std::string> activities{};
+    std::optional<std::vector<std::string>> active_roles{};
 };
 
 /// @brief Parsed group/update message containing the group state delta
