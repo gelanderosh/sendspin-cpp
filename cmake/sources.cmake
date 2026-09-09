@@ -9,6 +9,7 @@ function(sendspin_get_sources BASE_DIR)
 
         # Protocol
         ${BASE_DIR}/src/protocol.cpp
+        ${BASE_DIR}/src/protocol_crypto.cpp
 
         # Time synchronization
         ${BASE_DIR}/src/time_filter.cpp

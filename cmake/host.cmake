@@ -58,6 +58,9 @@ function(sendspin_configure_host TARGET_LIB SOURCE_DIR)
         ARDUINOJSON_USE_LONG_LONG=1
     )
 
+    find_package(OpenSSL REQUIRED)
+    target_link_libraries(${TARGET_LIB} PRIVATE OpenSSL::Crypto)
+
     # micro-flac and micro-opus (audio codec libraries, required by player/decoder)
     # Only fetched and linked when the player role is enabled.
     if(SENDSPIN_ENABLE_PLAYER)
