@@ -66,15 +66,17 @@ TEST(NoiseKkPsk2HandshakeTest, CompletesMutualAuthenticationAndTransportSetup) {
     ASSERT_TRUE(ProtocolCrypto::x25519_public_key(initiator_static_private, &initiator_static_public));
     ASSERT_TRUE(ProtocolCrypto::x25519_public_key(responder_static_private, &responder_static_public));
     ASSERT_TRUE(initiator.initialize(true, initiator_static_private, responder_static_public,
-                                    initiator_ephemeral_private, psk,
+                                    initiator_ephemeral_private,
                                     reinterpret_cast<const uint8_t*>(prologue), sizeof(prologue) - 1));
     ASSERT_TRUE(responder.initialize(false, responder_static_private, initiator_static_public,
-                                    responder_ephemeral_private, psk,
+                                    responder_ephemeral_private,
                                     reinterpret_cast<const uint8_t*>(prologue), sizeof(prologue) - 1));
+    ASSERT_TRUE(initiator.set_psk(psk));
     ASSERT_TRUE(initiator.write_message(first_payload.data(), first_payload.size(), &message_one));
     EXPECT_EQ(message_one.size(), NoiseKkPsk2Handshake::kHandshakeMessageOneSize + first_payload.size());
     ASSERT_TRUE(responder.read_message(message_one.data(), message_one.size(), &received_payload));
     EXPECT_EQ(received_payload, std::vector<uint8_t>(first_payload.begin(), first_payload.end()));
+    ASSERT_TRUE(responder.set_psk(psk));
     ASSERT_TRUE(responder.write_message(second_payload.data(), second_payload.size(), &message_two));
     EXPECT_EQ(message_two.size(), NoiseKkPsk2Handshake::kHandshakeMessageTwoSize + second_payload.size());
     ASSERT_TRUE(initiator.read_message(message_two.data(), message_two.size(), &received_payload));
@@ -108,9 +110,10 @@ TEST(NoiseKkPsk2HandshakeTest, RejectsTamperedHandshakePayload) {
     ASSERT_TRUE(ProtocolCrypto::x25519_public_key(first_static_private, &first_static_public));
     ASSERT_TRUE(ProtocolCrypto::x25519_public_key(second_static_private, &second_static_public));
     ASSERT_TRUE(initiator.initialize(true, first_static_private, second_static_public, first_ephemeral_private,
-                                    psk, nullptr, 0));
+                                    nullptr, 0));
     ASSERT_TRUE(responder.initialize(false, second_static_private, first_static_public, second_ephemeral_private,
-                                    psk, nullptr, 0));
+                                    nullptr, 0));
+    ASSERT_TRUE(initiator.set_psk(psk));
     ASSERT_TRUE(initiator.write_message(nullptr, 0, &message));
     message.back() ^= 1U;
     EXPECT_FALSE(responder.read_message(message.data(), message.size(), &payload));

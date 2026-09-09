@@ -38,8 +38,10 @@ public:
     bool initialize(bool initiator, const ProtocolCrypto::X25519Key& local_static_private_key,
                     const ProtocolCrypto::X25519Key& remote_static_public_key,
                     const ProtocolCrypto::X25519Key& ephemeral_private_key,
-                    const ProtocolCrypto::Sha256Digest& psk, const uint8_t* prologue,
-                    size_t prologue_size);
+                    const uint8_t* prologue, size_t prologue_size);
+
+    /// @brief Sets the PSK after its ID was authenticated in Noise message 1.
+    bool set_psk(const ProtocolCrypto::Sha256Digest& psk);
 
     bool write_message(const uint8_t* payload, size_t payload_size, std::vector<uint8_t>* message);
     bool read_message(const uint8_t* message, size_t message_size, std::vector<uint8_t>* payload);
@@ -70,6 +72,7 @@ private:
     ProtocolCrypto::X25519Key remote_static_{};
     ProtocolCrypto::X25519Key remote_ephemeral_{};
     ProtocolCrypto::Sha256Digest psk_{};
+    bool psk_set_{};
     NoiseSymmetricState symmetric_state_{};
 };
 

@@ -16,9 +16,27 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace sendspin {
+
+class SendspinPersistenceProvider;
+
+struct SendspinProtocolV1ClientInit {
+    std::string client_id;
+    static constexpr uint8_t VERSION = 1;
+    static constexpr const char* SUITE = "25519_ChaChaPoly_SHA256";
+};
+
+struct SendspinProtocolV1ServerInit {
+    std::string server_id;
+};
+
+enum class SendspinProtocolV1PskKind : uint8_t {
+    SENTINEL,
+    PAIRED,
+};
 
 /// @brief Utilities for protocol v1 persistent identity and pairing material.
 class SendspinProtocolV1 {
@@ -34,6 +52,16 @@ public:
 
     /// @brief Derives the base64url identifier for a pairing PSK.
     static bool derive_psk_id(const Key& psk, std::string* psk_id);
+
+    /// @brief Serializes the cleartext client/init message whose bytes seed the Noise prologue.
+    static bool format_client_init(const SendspinProtocolV1ClientInit& init, std::string* message);
+
+    /// @brief Parses and validates a cleartext server/init message without re-encoding it.
+    static bool parse_server_init(const std::string& message, SendspinProtocolV1ServerInit* init);
+
+    /// @brief Selects the paired PSK when its ID matches, otherwise the Sentinel PSK.
+    static bool select_psk(const std::string& psk_id, SendspinPersistenceProvider* persistence,
+                           Key* psk, SendspinProtocolV1PskKind* kind);
 };
 
 }  // namespace sendspin

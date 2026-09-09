@@ -29,8 +29,7 @@ bool NoiseKkPsk2Handshake::initialize(bool initiator,
                                       const ProtocolCrypto::X25519Key& local_static_private_key,
                                       const ProtocolCrypto::X25519Key& remote_static_public_key,
                                       const ProtocolCrypto::X25519Key& ephemeral_private_key,
-                                      const ProtocolCrypto::Sha256Digest& psk, const uint8_t* prologue,
-                                      size_t prologue_size) {
+                                      const uint8_t* prologue, size_t prologue_size) {
     if ((prologue_size > 0 && prologue == nullptr) ||
         !ProtocolCrypto::x25519_public_key(local_static_private_key, &local_static_.public_key) ||
         !ProtocolCrypto::x25519_public_key(ephemeral_private_key, &local_ephemeral_.public_key) ||
@@ -45,7 +44,8 @@ bool NoiseKkPsk2Handshake::initialize(bool initiator,
     local_static_.private_key = local_static_private_key;
     local_ephemeral_.private_key = ephemeral_private_key;
     remote_static_ = remote_static_public_key;
-    psk_ = psk;
+    psk_.fill(0);
+    psk_set_ = false;
     if (!symmetric_state_.mix_hash(initiator_ ? local_static_.public_key.data() : remote_static_.data(),
                                    ProtocolCrypto::X25519_KEY_SIZE) ||
         !symmetric_state_.mix_hash(initiator_ ? remote_static_.data() : local_static_.public_key.data(),
@@ -54,6 +54,15 @@ bool NoiseKkPsk2Handshake::initialize(bool initiator,
         return false;
     }
     stage_ = initiator_ ? Stage::kInitiatorWriteMessageOne : Stage::kResponderReadMessageOne;
+    return true;
+}
+
+bool NoiseKkPsk2Handshake::set_psk(const ProtocolCrypto::Sha256Digest& psk) {
+    if (stage_ != Stage::kInitiatorWriteMessageOne && stage_ != Stage::kResponderWriteMessageTwo) {
+        return false;
+    }
+    psk_ = psk;
+    psk_set_ = true;
     return true;
 }
 
@@ -76,7 +85,7 @@ bool NoiseKkPsk2Handshake::write_message(const uint8_t* payload, size_t payload_
     }
     message->clear();
     if (stage_ == Stage::kInitiatorWriteMessageOne) {
-        if (!mix_ephemeral_public_key(local_ephemeral_.public_key) ||
+        if (!psk_set_ || !mix_ephemeral_public_key(local_ephemeral_.public_key) ||
             !mix_dh(local_ephemeral_.private_key, remote_static_) ||
             !mix_dh(local_static_.private_key, remote_static_) ||
             !symmetric_state_.encrypt_and_hash(payload, payload_size, message)) {
@@ -88,7 +97,7 @@ bool NoiseKkPsk2Handshake::write_message(const uint8_t* payload, size_t payload_
         return true;
     }
     if (stage_ == Stage::kResponderWriteMessageTwo) {
-        if (!mix_ephemeral_public_key(local_ephemeral_.public_key) ||
+        if (!psk_set_ || !mix_ephemeral_public_key(local_ephemeral_.public_key) ||
             !mix_dh(local_ephemeral_.private_key, remote_ephemeral_) ||
             !mix_dh(local_ephemeral_.private_key, remote_static_) ||
             !symmetric_state_.mix_key_and_hash(psk_.data(), psk_.size()) ||

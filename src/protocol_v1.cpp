@@ -14,8 +14,10 @@
 
 #include "sendspin/protocol_v1.h"
 
+#include "sendspin/client.h"
 #include "protocol_crypto.h"
 
+#include <ArduinoJson.h>
 #include <algorithm>
 
 namespace sendspin {
@@ -54,6 +56,13 @@ std::string base64url_encode(const uint8_t* input, size_t input_size) {
     return output;
 }
 
+bool is_base64url_key_id(const std::string& value) {
+    return value.size() == 43 && std::all_of(value.begin(), value.end(), [](char character) {
+        return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
+               (character >= '0' && character <= '9') || character == '-' || character == '_';
+    });
+}
+
 }  // namespace
 
 bool SendspinProtocolV1::derive_client_id(const Key& private_key, std::string* client_id) {
@@ -88,6 +97,74 @@ bool SendspinProtocolV1::derive_psk_id(const Key& psk, std::string* psk_id) {
         return false;
     }
     *psk_id = base64url_encode(hash.data(), hash.size());
+    return true;
+}
+
+bool SendspinProtocolV1::format_client_init(const SendspinProtocolV1ClientInit& init,
+                                            std::string* message) {
+    if (message == nullptr || !is_base64url_key_id(init.client_id)) {
+        return false;
+    }
+    JsonDocument document;
+    document["type"] = "client/init";
+    document["payload"]["client_id"] = init.client_id;
+    document["payload"]["version"] = SendspinProtocolV1ClientInit::VERSION;
+    document["payload"]["suite"] = SendspinProtocolV1ClientInit::SUITE;
+    message->clear();
+    serializeJson(document, *message);
+    return !message->empty();
+}
+
+bool SendspinProtocolV1::parse_server_init(const std::string& message,
+                                            SendspinProtocolV1ServerInit* init) {
+    if (init == nullptr || message.empty()) {
+        return false;
+    }
+    JsonDocument document;
+    if (deserializeJson(document, message) != DeserializationError::Ok ||
+        !document["type"].is<const char*>() ||
+        std::string(document["type"].as<const char*>()) != "server/init" ||
+        !document["payload"]["server_id"].is<const char*>() ||
+        !document["payload"]["version"].is<uint8_t>() ||
+        document["payload"]["version"].as<uint8_t>() != SendspinProtocolV1ClientInit::VERSION) {
+        return false;
+    }
+    const std::string server_id = document["payload"]["server_id"].as<const char*>();
+    if (!is_base64url_key_id(server_id)) {
+        return false;
+    }
+    init->server_id = server_id;
+    return true;
+}
+
+bool SendspinProtocolV1::select_psk(const std::string& psk_id,
+                                    SendspinPersistenceProvider* persistence, Key* psk,
+                                    SendspinProtocolV1PskKind* kind) {
+    if (psk == nullptr || kind == nullptr || !is_base64url_key_id(psk_id)) {
+        return false;
+    }
+    if (persistence != nullptr) {
+        const auto paired_psk = persistence->load_protocol_v1_psk();
+        if (paired_psk.has_value()) {
+            std::string paired_psk_id;
+            if (!derive_psk_id(*paired_psk, &paired_psk_id)) {
+                return false;
+            }
+            if (psk_id == paired_psk_id) {
+                *psk = *paired_psk;
+                *kind = SendspinProtocolV1PskKind::PAIRED;
+                return true;
+            }
+        }
+    }
+    if (!sentinel_psk(psk)) {
+        return false;
+    }
+    std::string sentinel_psk_id;
+    if (!derive_psk_id(*psk, &sentinel_psk_id) || psk_id != sentinel_psk_id) {
+        return false;
+    }
+    *kind = SendspinProtocolV1PskKind::SENTINEL;
     return true;
 }
 
