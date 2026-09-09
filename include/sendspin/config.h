@@ -34,8 +34,9 @@ namespace sendspin {
 /// @brief Configuration for a SendspinClient instance
 /// Filled in by the platform (e.g., ESPHome) before calling start_server()
 struct SendspinClientConfig {
-    /// Unique client identifier. When left empty, the library falls back to the detected local
-    /// network interface MAC address (the same value used for device_info.mac_address).
+    /// Unique client identifier. Protocol v1 clients must set this to the unpadded base64url
+    /// encoding of their persistent X25519 public key. Legacy clients that leave it empty fall
+    /// back to the detected local network interface MAC address.
     std::string client_id;
     std::string name;  ///< Friendly display name
 

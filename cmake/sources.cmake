@@ -10,6 +10,7 @@ function(sendspin_get_sources BASE_DIR)
         # Protocol
         ${BASE_DIR}/src/protocol.cpp
         ${BASE_DIR}/src/protocol_crypto.cpp
+        ${BASE_DIR}/src/protocol_v1.cpp
         ${BASE_DIR}/src/noise_state.cpp
         ${BASE_DIR}/src/noise_kkpsk2.cpp
 

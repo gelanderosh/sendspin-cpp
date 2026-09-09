@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -88,6 +89,9 @@ public:
 /// All methods fire on the main loop thread
 class SendspinPersistenceProvider {
 public:
+    static constexpr size_t PROTOCOL_V1_KEY_SIZE = 32;
+    using ProtocolV1Key = std::array<uint8_t, PROTOCOL_V1_KEY_SIZE>;
+
     virtual ~SendspinPersistenceProvider() = default;
 
     /// @brief Saves the FNV1 hash of the last server that was playing
@@ -114,6 +118,26 @@ public:
     /// @return The saved delay in milliseconds, or nullopt if none saved
     virtual std::optional<uint16_t> load_static_delay() {
         return std::nullopt;
+    }
+
+    /// @brief Loads the persistent X25519 private key used as protocol v1 identity.
+    virtual std::optional<ProtocolV1Key> load_protocol_v1_identity_private_key() {
+        return std::nullopt;
+    }
+
+    /// @brief Saves the persistent X25519 private key used as protocol v1 identity.
+    virtual bool save_protocol_v1_identity_private_key(const ProtocolV1Key& /*private_key*/) {
+        return false;
+    }
+
+    /// @brief Loads an optional paired protocol v1 PSK. The sentinel PSK is not persisted.
+    virtual std::optional<ProtocolV1Key> load_protocol_v1_psk() {
+        return std::nullopt;
+    }
+
+    /// @brief Saves the active paired protocol v1 PSK.
+    virtual bool save_protocol_v1_psk(const ProtocolV1Key& /*psk*/) {
+        return false;
     }
 };
 
