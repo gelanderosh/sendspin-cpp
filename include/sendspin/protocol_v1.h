@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace sendspin {
 
@@ -52,6 +53,12 @@ public:
 
     /// @brief Derives the base64url identifier for a pairing PSK.
     static bool derive_psk_id(const Key& psk, std::string* psk_id);
+
+    /// @brief Encodes bytes as unpadded RFC 4648 base64url.
+    static bool base64url_encode(const uint8_t* input, size_t input_size, std::string* output);
+
+    /// @brief Decodes an unpadded RFC 4648 base64url string, rejecting invalid encodings.
+    static bool base64url_decode(const std::string& input, std::vector<uint8_t>* output);
 
     /// @brief Serializes the cleartext client/init message whose bytes seed the Noise prologue.
     static bool format_client_init(const SendspinProtocolV1ClientInit& init, std::string* message);

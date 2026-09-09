@@ -28,7 +28,7 @@ constexpr char kBase64UrlAlphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno
 constexpr char kSentinelPskLabel[] = "sendspin-sentinel-psk-v1";
 constexpr char kPskIdLabel[] = "sendspin-psk-id-v1";
 
-std::string base64url_encode(const uint8_t* input, size_t input_size) {
+std::string encode_base64url(const uint8_t* input, size_t input_size) {
     std::string output;
     output.reserve((input_size * 4 + 2) / 3);
     size_t index = 0;
@@ -56,6 +56,19 @@ std::string base64url_encode(const uint8_t* input, size_t input_size) {
     return output;
 }
 
+int base64url_value(char character) {
+    if (character >= 'A' && character <= 'Z') {
+        return character - 'A';
+    }
+    if (character >= 'a' && character <= 'z') {
+        return character - 'a' + 26;
+    }
+    if (character >= '0' && character <= '9') {
+        return character - '0' + 52;
+    }
+    return character == '-' ? 62 : (character == '_' ? 63 : -1);
+}
+
 bool is_base64url_key_id(const std::string& value) {
     return value.size() == 43 && std::all_of(value.begin(), value.end(), [](char character) {
         return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') ||
@@ -73,7 +86,7 @@ bool SendspinProtocolV1::derive_client_id(const Key& private_key, std::string* c
     if (!ProtocolCrypto::x25519_public_key(private_key, &public_key)) {
         return false;
     }
-    *client_id = base64url_encode(public_key.data(), public_key.size());
+    *client_id = encode_base64url(public_key.data(), public_key.size());
     return true;
 }
 
@@ -96,8 +109,40 @@ bool SendspinProtocolV1::derive_psk_id(const Key& psk, std::string* psk_id) {
     if (!ProtocolCrypto::sha256(input.data(), input.size(), &hash)) {
         return false;
     }
-    *psk_id = base64url_encode(hash.data(), hash.size());
+    *psk_id = encode_base64url(hash.data(), hash.size());
     return true;
+}
+
+bool SendspinProtocolV1::base64url_encode(const uint8_t* input, size_t input_size,
+                                          std::string* output) {
+    if (output == nullptr || (input_size > 0 && input == nullptr)) {
+        return false;
+    }
+    *output = encode_base64url(input, input_size);
+    return true;
+}
+
+bool SendspinProtocolV1::base64url_decode(const std::string& input, std::vector<uint8_t>* output) {
+    if (output == nullptr || input.size() % 4 == 1) {
+        return false;
+    }
+    output->clear();
+    uint32_t accumulator = 0;
+    int bits = 0;
+    for (char character : input) {
+        const int value = base64url_value(character);
+        if (value < 0) {
+            output->clear();
+            return false;
+        }
+        accumulator = (accumulator << 6) | static_cast<uint32_t>(value);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            output->push_back(static_cast<uint8_t>((accumulator >> bits) & 0xFFU));
+        }
+    }
+    return bits == 0 || (accumulator & ((1U << bits) - 1U)) == 0;
 }
 
 bool SendspinProtocolV1::format_client_init(const SendspinProtocolV1ClientInit& init,
