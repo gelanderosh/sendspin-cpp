@@ -60,6 +60,9 @@ public:
         /// Minimum number of samples before adaptive forgetting is enabled.
         /// Building sufficient history before enabling forgetting improves stability.
         uint8_t min_samples = 100U;  // NOLINT(readability-magic-numbers)
+        /// Minimum number of samples before drift compensation is applied to time conversion.
+        /// Early measurements establish offset but are too sparse to estimate clock drift reliably.
+        uint8_t min_samples_for_drift = 6U;  // NOLINT(readability-magic-numbers)
         /// SNR threshold for applying drift compensation in time conversions.
         /// Drift is only used when drift² > threshold² * drift_covariance, ensuring
         /// the drift estimate is statistically significant before applying corrections.
@@ -149,6 +152,9 @@ public:
     /// @return True if the filter has been updated with at least one time measurement.
     bool has_update() const;
 
+    /// @brief Returns true once the filter has received at least `minimum_samples` measurements.
+    bool has_minimum_samples(uint8_t minimum_samples) const;
+
 protected:
     // ========================================
     // Member variables
@@ -174,6 +180,7 @@ protected:
     // 8-bit fields
     uint8_t count_{0};
     const uint8_t min_samples_for_forgetting;
+    const uint8_t min_samples_for_drift;
     bool use_drift_{false};
 };
 
