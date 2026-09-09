@@ -17,6 +17,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 namespace sendspin {
 
@@ -28,6 +29,15 @@ public:
 
     /// @brief Calculates the SHA-256 digest of the supplied bytes.
     static bool sha256(const uint8_t* input, size_t input_size, Sha256Digest* digest);
+
+    /// @brief Calculates HMAC-SHA256 for the supplied key and message.
+    static bool hmac_sha256(const uint8_t* key, size_t key_size, const uint8_t* input,
+                            size_t input_size, Sha256Digest* digest);
+
+    /// @brief Expands key material using HKDF-SHA256.
+    static bool hkdf_sha256(const uint8_t* salt, size_t salt_size, const uint8_t* input,
+                            size_t input_size, const uint8_t* info, size_t info_size,
+                            uint8_t* output, size_t output_size);
 };
 
 }  // namespace sendspin
